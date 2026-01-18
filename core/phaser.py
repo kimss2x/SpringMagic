@@ -1,0 +1,350 @@
+# -*- coding: utf-8 -*-
+import mathutils
+import copy
+import math
+import numpy as np
+from .utils import math_utils
+
+class PhaserCore(object):
+    r"""
+    Core calculation module for SpringMagic Phaser.
+    Handles the physics-like simulation for bone chains.
+    """
+    def __init__(self):
+        self.delay = 5.0
+        self.recursion = 5.0
+        self.strength = 1.0
+        self.threshold = 0.001
+        self.sf = 0
+        self.ef = 10
+        self.debug = False
+        
+        # New Force Properties
+        self.use_force = False
+        self.force_vector = mathutils.Vector((0, 0, -1))
+        self.force_strength = 0.0
+        
+        # Scene Fields
+        self.use_scene_fields = False
+        self._cached_fields = []
+
+    def get_tree_list(self, context):
+        r"""Get list of bone chains (trees) from selection"""
+        tree_roots = []
+        obj_trees = {}
+        
+        try:
+            selected = context.selected_pose_bones
+        except AttributeError:
+            # Fallback if context is not view_layer/pose specific
+            import bpy
+            if bpy.context.active_object and bpy.context.active_object.mode == 'POSE':
+                selected = bpy.context.selected_pose_bones
+            else:
+                return {}
+
+        if not selected:
+            return {}
+
+        for pbn in selected:
+            if pbn.parent is None:
+                continue
+            
+            is_root = False
+            if pbn.parent not in selected:
+                is_root = True
+            elif pbn.parent.children[0] != pbn:
+                is_root = True
+            
+            if is_root:
+                tree_roots.append(pbn)
+
+        t_cnt = 0
+        for root_obj in tree_roots:
+            depth_cnt = math_utils.get_hierarchy_depth(root_obj)
+            tree = []
+            t_name = "tree{}".format(t_cnt)
+            
+            if depth_cnt not in obj_trees:
+                obj_trees[depth_cnt] = {}
+
+            if len(root_obj.children) == 0:
+                tree.append(root_obj)
+                obj_trees[depth_cnt][t_name] = self._create_data_structure(tree)
+                t_cnt += 1
+                continue
+
+            tree.append(root_obj)
+            c_obj = root_obj.children[0]
+
+            while c_obj in selected:
+                tree.append(c_obj)
+                if len(c_obj.children) == 0:
+                    break
+                c_obj = c_obj.children[0]
+
+            obj_trees[depth_cnt][t_name] = self._create_data_structure(tree)
+            t_cnt += 1
+
+        return obj_trees
+
+    def _create_data_structure(self, tree):
+        return {
+            "obj_list": tree,
+            "pre_mt": [],
+            "obj_length": [],
+            "old_vec": []
+        }
+
+    def get_bone_length_matrix(self, pbn, matrix_world):
+        r"""Relative matrix calculation"""
+        wmt = matrix_world @ pbn.matrix
+        p_wmt = matrix_world @ pbn.parent.matrix
+        len_mt = p_wmt.inverted() @ wmt
+        return len_mt
+
+    def get_end_pos_from_bonelength(self, pbn, matrix_world):
+        wmt = matrix_world @ pbn.matrix
+        local_tip = mathutils.Matrix.Translation((0, pbn.length, 0))
+        tip_world = wmt @ local_tip
+        return tip_world
+
+    def set_pre_data(self, obj_trees, context):
+        r"""Initialize matrices and vectors"""
+        dct_k = sorted(obj_trees.keys())
+        amt = context.active_object
+        amt_world = amt.matrix_world
+
+        # Cache fields once if enabled
+        if self.use_scene_fields:
+            self._cache_scene_fields(context)
+
+        for k in dct_k:
+            for t in obj_trees[k]:
+                data = obj_trees[k][t]
+                obj_list = data["obj_list"]
+                
+                for i, pbn in enumerate(obj_list):
+                    wmt = amt_world @ pbn.matrix
+                    data["pre_mt"].append(wmt)
+                    
+                    data["obj_length"].append(self.get_bone_length_matrix(pbn, amt_world))
+                    data["old_vec"].append(mathutils.Vector((0.0, 0.0, 0.0)))
+
+                    if i == len(obj_list) - 1:
+                        end_mt = self.get_end_pos_from_bonelength(pbn, amt_world)
+                        data["pre_mt"].append(end_mt)
+                        
+                        wmt = amt_world @ pbn.matrix
+                        len_mt = wmt.inverted() @ end_mt
+                        data["obj_length"].append(len_mt)
+
+        return obj_trees
+
+    def _cache_scene_fields(self, context):
+        r"""Find relevant force fields in the scene"""
+        self._cached_fields = []
+        for obj in context.scene.objects:
+            if obj.field and obj.field.type in {'WIND', 'FORCE', 'VORTEX'}: # Support simplified types
+                 self._cached_fields.append(obj)
+
+    def calculate_scene_forces(self, position):
+        r"""Calculate summed force vector from scene fields at a position"""
+        total_force = mathutils.Vector((0.0, 0.0, 0.0))
+        
+        for f_obj in self._cached_fields:
+            field = f_obj.field
+            strength = field.strength
+            if strength == 0: continue
+
+            # Field Transform
+            f_mat = f_obj.matrix_world
+            f_loc = f_mat.translation
+            
+            # 1. WIND: Directional, along local Z
+            if field.type == 'WIND':
+                # Local Z axis in World Space
+                wind_dir = f_mat.to_3x3().col[2].normalized()
+                
+                # Simple falloff (Planar)? Blender wind usually implies infinite plane unless confined
+                # We'll treat it as global directional for simplicity or check distance if needed
+                # For now: Apply vector * strength
+                force_vec = wind_dir * strength
+                
+                # Check noise/flow? Too complex for python loop, keep it simple
+                total_force += force_vec
+            
+            # 2. FORCE (Point): Radial
+            elif field.type == 'FORCE':
+                # Vector from source to object
+                direction = position - f_loc
+                dist = direction.length
+                
+                # Avoid division by zero
+                if dist < 0.001: dist = 0.001
+                
+                direction.normalize()
+                
+                # Apply Power Law Falloff (simplified)
+                # Blender uses 'Power' (default 2)
+                falloff = 1.0
+                if field.use_max_distance and dist > field.distance_max:
+                    falloff = 0.0
+                elif field.use_min_distance and dist < field.distance_min:
+                    # Constant force inside min distance? or capped? usually smoothed
+                    pass
+                else:
+                    # Simple Inverse Square approximation if not strictly specified
+                    # Actually standard physics is 1/r^2
+                    falloff = 1.0 / (dist ** 2)
+                
+                # Force is Repulsive (Positive) or Attractive (Negative)
+                # Field strength in Blender: Positive blows away
+                force_vec = direction * (strength * falloff * 20.0) # Scale factor to match Blender feeling roughly
+                total_force += force_vec
+                
+        return total_force
+
+    def calculate_step(self, obj_data, context):
+        r"""Perform single step calculation"""
+        amt = context.active_object
+        amt_world = amt.matrix_world
+        
+        first_bone = obj_data["obj_list"][0]
+        if first_bone.parent:
+            cur_p_mt = amt_world @ first_bone.parent.matrix
+        else:
+            cur_p_mt = amt_world
+
+        strgh = self.strength
+        trshd = self.threshold
+        
+        # Base Constant Force
+        force_vec_world = self.force_vector.normalized() * self.force_strength if self.use_force else mathutils.Vector((0,0,0))
+        
+        for i in range(len(obj_data["obj_list"])):
+            obj = obj_data["obj_list"][i]
+            
+            tag_mt = cur_p_mt @ obj_data["obj_length"][i]
+            
+            pre_mt = copy.copy(obj_data["pre_mt"][i])
+            new_mt = copy.copy(obj_data["pre_mt"][i])
+            tag_pos = tag_mt.translation
+
+            # Align Y
+            pre_y_vec = pre_mt.to_3x3().col[1].normalized()
+            tag_y_vec = tag_mt.to_3x3().col[1].normalized()
+            
+            dot_prod = math_utils.clamp(pre_y_vec.dot(tag_y_vec), -1.0, 1.0)
+            y_diff = math.acos(dot_prod)
+            
+            axis_vec = pre_y_vec.cross(tag_y_vec)
+            if axis_vec.length > 0.0001:
+                axis_vec.normalize()
+                rot_fix = mathutils.Matrix.Rotation(y_diff, 4, axis_vec)
+                new_mt = math_utils.rotate_matrix_by_component(new_mt, rot_fix)
+            
+            new_mt.translation = tag_pos
+
+            # Phase 2: Roll
+            new_x_vec = new_mt.to_3x3().col[0].normalized()
+            tag_x_vec = tag_mt.to_3x3().col[0].normalized()
+            
+            dot_val = math_utils.clamp(new_x_vec.dot(tag_x_vec), -1.0, 1.0)
+            roll = math.acos(dot_val)
+            
+            if self.delay > 0:
+                roll = roll / self.delay
+            else:
+                roll = 0
+
+            check_vec = new_x_vec.cross(tag_x_vec)
+            if check_vec.dot(tag_y_vec) < 0.0:
+                roll = -roll
+
+            axis_vec = new_mt.to_3x3().col[1].normalized()
+            rot_roll = mathutils.Matrix.Rotation(roll, 4, axis_vec)
+            new_mt = math_utils.rotate_matrix_by_component(new_mt, rot_roll)
+            new_mt.translation = tag_pos
+
+            # Phase 3: Elasticity
+            c_pos = obj_data["pre_mt"][i+1].translation # Current tip pos (from previous frame calculation)
+            y_vec = (c_pos - tag_pos).normalized()
+            new_y_vec = new_mt.to_3x3().col[1].normalized()
+            rcs_vec = obj_data["old_vec"][i] * self.recursion
+            
+            base_phase = (new_y_vec - (y_vec * strgh))
+            phase_vec = (base_phase / self.delay) + rcs_vec
+            
+            # Apply Base Force
+            if self.use_force:
+                phase_vec += force_vec_world * (1.0 / max(self.delay, 1.0))
+            
+            # Apply Scene Fields
+            if self.use_scene_fields:
+                # Calculate effect at the bone root (tag_pos)
+                scene_force = self.calculate_scene_forces(tag_pos)
+                # Apply to phase
+                # Scene forces can be strong, we might want to scale them or let user adjust strength
+                # Using 0.01 factor to tame raw values typically returned by physics engines
+                phase_vec += scene_force * 0.01 * (1.0 / max(self.delay, 1.0))
+
+            if phase_vec.length < trshd:
+                phase_vec = mathutils.Vector((0.0, 0.0, 0.0))
+
+            y_vec = y_vec + phase_vec
+            obj_data["old_vec"][i] = phase_vec
+
+            y_vec.normalize()
+            new_z_vec = new_mt.to_3x3().col[2].normalized()
+            x_vec = y_vec.cross(new_z_vec).normalized()
+            z_vec = x_vec.cross(y_vec).normalized()
+            
+            final_rot = mathutils.Matrix((x_vec, y_vec, z_vec)).transposed().to_4x4()
+            final_rot.translation = tag_pos
+            new_mt = final_rot
+
+            # Apply
+            obj.matrix = amt_world.inverted() @ new_mt
+            
+            context.view_layer.update()
+            self.set_animkey(obj, context)
+
+            obj_data["pre_mt"][i] = copy.copy(new_mt)
+            cur_p_mt = copy.copy(new_mt)
+            
+            next_start_mt = cur_p_mt @ obj_data["obj_length"][i+1]
+            obj_data["pre_mt"][i+1].translation = next_start_mt.translation
+
+    def set_animkey(self, obj, context):
+        f = context.scene.frame_current
+        obj.keyframe_insert(data_path='location', frame=f)
+        obj.keyframe_insert(data_path='rotation_euler', frame=f)
+        obj.keyframe_insert(data_path='rotation_quaternion', frame=f)
+        obj.keyframe_insert(data_path='scale', frame=f)
+
+    def delete_anim_keys(self, obj_trees, context):
+        dct_k = sorted(obj_trees.keys())
+        for k in dct_k:
+            for t in obj_trees[k]:
+                for pbn in obj_trees[k][t]["obj_list"]:
+                    for f in range(self.sf - 1, self.ef + 1):
+                        try:
+                            pbn.keyframe_delete(data_path="location", frame=f)
+                            pbn.keyframe_delete(data_path="rotation_euler", frame=f)
+                            pbn.keyframe_delete(data_path="rotation_quaternion", frame=f)
+                            pbn.keyframe_delete(data_path="scale", frame=f)
+                        except:
+                            pass
+        context.view_layer.update()
+
+    def execute_simulation(self, obj_trees, context):
+        dct_k = sorted(obj_trees.keys())
+        
+        for f in range(self.sf + 1, self.ef + 1):
+            context.scene.frame_set(f)
+            for k in dct_k:
+                for t in obj_trees[k]:
+                    self.calculate_step(obj_trees[k][t], context)
+        
+        return True
