@@ -37,9 +37,12 @@ class PhaserCore(object):
         self.use_collision = False
         self.collision_margin = 0.0
         self.collision_length_offset = 0.0
+        self.use_collision_plane = False
+        self.collision_plane_object = None
         self.use_collision_collection = False
         self.collision_collection = None
         self._collision_bones = []
+        self._collision_plane = None
         self._collection_colliders = []
 
     def get_tree_list(self, context, selected_bones=None):
@@ -146,6 +149,8 @@ class PhaserCore(object):
             self._cache_scene_fields(context)
         if self.use_collision:
             self._cache_collision_bones(obj_trees)
+        if self.use_collision_plane:
+            self._cache_collision_plane()
         if self.use_collision_collection:
             self._cache_collection_colliders()
 
@@ -182,6 +187,23 @@ class PhaserCore(object):
     def _cache_collision_bones(self, obj_trees):
         r"""Collect bones used for collision checks"""
         self._collision_bones = self._get_unique_bones(obj_trees)
+
+    def _cache_collision_plane(self):
+        r"""Cache collision plane data from an object"""
+        self._collision_plane = None
+        obj = self.collision_plane_object
+        if not obj:
+            return
+        normal = obj.matrix_world.to_3x3() @ mathutils.Vector((0.0, 0.0, 1.0))
+        if normal.length == 0.0:
+            return
+        normal.normalize()
+        point = obj.matrix_world.translation
+        self._collision_plane = {
+            "obj": obj,
+            "normal": normal,
+            "point": point
+        }
 
     def _cache_collection_colliders(self):
         r"""Collect collection objects with rigid body collision shapes"""
@@ -258,6 +280,17 @@ class PhaserCore(object):
                     delta.normalize()
                     corrected = closest + (delta * radius)
         return corrected
+
+    def _apply_plane_collision(self, point):
+        plane = self._collision_plane
+        if not plane:
+            return point
+        n = plane["normal"]
+        p0 = plane["point"]
+        dist = (point - p0).dot(n)
+        if dist < 0.0:
+            return point - (n * dist)
+        return point
 
     def _apply_collection_collision(self, point):
         corrected = point
@@ -526,6 +559,7 @@ class PhaserCore(object):
 
             y_vec.normalize()
             if ((self.use_collision and self._collision_bones) or
+                (self.use_collision_plane and self._collision_plane) or
                 (self.use_collision_collection and self._collection_colliders)):
                 bone_len = obj_data["obj_length"][i+1].translation.length * ext_scale
                 if bone_len > 0.0:
@@ -540,6 +574,8 @@ class PhaserCore(object):
                         corrected_tip = self._apply_capsule_collision(tip_pos, amt_world, exclude_names)
                     if self.use_collision_collection and self._collection_colliders:
                         corrected_tip = self._apply_collection_collision(corrected_tip)
+                    if self.use_collision_plane and self._collision_plane:
+                        corrected_tip = self._apply_plane_collision(corrected_tip)
                     if (corrected_tip - tag_pos).length > 0.000001:
                         y_vec = (corrected_tip - tag_pos).normalized()
             new_z_vec = new_mt.to_3x3().col[2].normalized()

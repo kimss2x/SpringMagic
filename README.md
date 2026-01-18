@@ -10,6 +10,7 @@ wind effects for natural secondary motion.
 - Optional constant force (gravity) with direction and strength
 - Optional scene force fields (Wind / Force / Vortex)
 - Bone-based collision using bone radius/length with offsets
+- Plane collision using a designated plane object (infinite plane)
 - Collection collision using rigid body or collision physics shapes
 - Extra spring controls: twist, tension, inertia, extend, sub-steps
 - Preset save/load and reset to defaults
@@ -33,9 +34,10 @@ wind effects for natural secondary motion.
 4. Open View3D > Sidebar (N) > Animation tab > SpringMagic.
 5. Adjust Delay / Recursion / Strength, and optional forces.
 6. (Optional) Enable Collision and adjust Radius/Length Offset for self-collision.
-7. (Optional) Enable Collection Collision and pick a collection of rigid body colliders.
-8. Click Calculate Physics to bake keys.
-9. Use Clear Animation to remove generated keys.
+7. (Optional) Enable Plane Collision and pick a plane object.
+8. (Optional) Enable Collection Collision and pick a collection of rigid body colliders.
+9. Click Calculate Physics to bake keys.
+10. Use Clear Animation to remove generated keys.
 
 ## Presets
 - Presets are stored as JSON in `presets/`.
@@ -46,6 +48,7 @@ wind effects for natural secondary motion.
 - The add-on writes keyframes for location, rotation, and scale on selected bones.
 - For safety, work on a duplicate action or a copy of your rig.
 - Collection collision reads rigid body collision shapes and Collision modifiers; convex hull/mesh are approximated as box.
+- Plane collision uses the plane object's local Z axis and is treated as infinite.
 - Collision thickness/margin from physics settings is used to expand collider size.
 
 ## License

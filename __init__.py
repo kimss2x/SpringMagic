@@ -12,7 +12,7 @@ bl_info = {
     "name": "SpringMagic",
     "description": "Physically based bone animation system with spring, force, and wind effects for creating natural secondary motion and overlapping action.",
     "author": "CaptainHansode",
-    "version": (1, 2, 0),
+    "version": (1, 3, 0),
     "blender": (2, 80, 0),
     "location":  "View3D > Sidebar > Tool Tab",
     "warning": "",

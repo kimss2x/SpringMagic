@@ -74,6 +74,8 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         core.collision_length_offset = sjps.collision_length_offset
         core.use_collision_collection = sjps.use_collision_collection
         core.collision_collection = sjps.collision_collection
+        core.use_collision_plane = sjps.use_collision_plane
+        core.collision_plane_object = sjps.collision_plane_object
 
         if core.sf >= core.ef:
             self.report({'ERROR'}, "Start Frame must be smaller than End Frame.")
@@ -174,6 +176,8 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "use_collision": sjps.use_collision,
             "collision_margin": sjps.collision_margin,
             "collision_length_offset": sjps.collision_length_offset,
+            "use_collision_plane": sjps.use_collision_plane,
+            "collision_plane_object": sjps.collision_plane_object.name if sjps.collision_plane_object else "",
             "use_collision_collection": sjps.use_collision_collection,
             "collision_collection": sjps.collision_collection.name if sjps.collision_collection else "",
             "use_loop": sjps.use_loop,
@@ -219,6 +223,9 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.use_collision = data.get("use_collision", False)
             sjps.collision_margin = data.get("collision_margin", sjps.collision_margin)
             sjps.collision_length_offset = data.get("collision_length_offset", sjps.collision_length_offset)
+            sjps.use_collision_plane = data.get("use_collision_plane", False)
+            plane_name = data.get("collision_plane_object", "")
+            sjps.collision_plane_object = bpy.data.objects.get(plane_name) if plane_name else None
             sjps.use_collision_collection = data.get("use_collision_collection", False)
             collection_name = data.get("collision_collection", "")
             sjps.collision_collection = bpy.data.collections.get(collection_name) if collection_name else None
@@ -254,6 +261,8 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.use_collision = False
         sjps.collision_margin = 0.0
         sjps.collision_length_offset = 0.0
+        sjps.use_collision_plane = False
+        sjps.collision_plane_object = None
         sjps.use_collision_collection = False
         sjps.collision_collection = None
         sjps.use_loop = False

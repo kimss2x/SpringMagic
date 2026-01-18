@@ -93,6 +93,16 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="Extra length added to bone collision capsule",
         default=0.0, min=0.0, max=10.0, precision=3
     )
+    use_collision_plane: bpy.props.BoolProperty(
+        name="Plane Collision",
+        description="Enable collision against a plane object",
+        default=False
+    )
+    collision_plane_object: bpy.props.PointerProperty(
+        name="Plane Object",
+        description="Object used as an infinite collision plane (local Z normal)",
+        type=bpy.types.Object
+    )
     use_collision_collection: bpy.props.BoolProperty(
         name="Collection Collision",
         description="Use collection objects with rigid body or collision physics shapes",

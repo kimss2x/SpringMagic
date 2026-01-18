@@ -1,5 +1,5 @@
 # TODO
-- [ ] Collision plane support
+- [x] Collision plane support
 - [ ] Wind object with max/min/frequency controls
 - [ ] Pose match equivalent (Blender)
 - [ ] Controller bind/bake utilities

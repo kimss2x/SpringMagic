@@ -61,6 +61,10 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
             col.prop(sjps, "collision_margin", text="Radius Offset")
             col.prop(sjps, "collision_length_offset", text="Length Offset")
         col.separator()
+        col.prop(sjps, "use_collision_plane", text="Plane Collision")
+        if sjps.use_collision_plane:
+            col.prop(sjps, "collision_plane_object", text="Plane Object")
+        col.separator()
         col.prop(sjps, "use_collision_collection", text="Collision Collection")
         if sjps.use_collision_collection:
             col.prop(sjps, "collision_collection", text="Collection")
