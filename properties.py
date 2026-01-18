@@ -20,6 +20,36 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="Strength of the spring/phaser effect",
         default=1.0, min=1.0, max=10.0
     )
+    twist: bpy.props.FloatProperty(
+        name="Twist",
+        description="Twist damping around the bone axis",
+        default=0.0, min=0.0, max=10.0
+    )
+    tension: bpy.props.FloatProperty(
+        name="Tension",
+        description="Damping to resist bending",
+        default=0.0, min=0.0, max=10.0
+    )
+    inertia: bpy.props.FloatProperty(
+        name="Inertia",
+        description="Carry over motion from previous frames",
+        default=0.0, min=0.0, max=10.0
+    )
+    extend: bpy.props.FloatProperty(
+        name="Extend",
+        description="Stretch along the bone axis",
+        default=0.0, min=0.0, max=10.0
+    )
+    sub_steps: bpy.props.IntProperty(
+        name="Sub Steps",
+        description="Internal simulation steps per frame",
+        default=1, min=1, max=10
+    )
+    show_advanced: bpy.props.BoolProperty(
+        name="Advanced",
+        description="Show advanced spring controls",
+        default=False
+    )
     
     # Physics / Force Properties
 

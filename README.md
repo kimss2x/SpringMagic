@@ -11,6 +11,7 @@ wind effects for natural secondary motion.
 - Optional scene force fields (Wind / Force / Vortex)
 - Bone-based collision using bone radius/length with offsets
 - Collection collision using rigid body or collision physics shapes
+- Extra spring controls: twist, tension, inertia, extend, sub-steps
 - Preset save/load and reset to defaults
 - One-click bake and clear of keyframes
 

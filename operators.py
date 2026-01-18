@@ -56,6 +56,11 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         core.delay = sjps.delay
         core.recursion = sjps.recursion / 10.0
         core.strength = 1.0 + ((sjps.strength - 1.0) / 10.0)
+        core.twist = sjps.twist / 10.0
+        core.tension = sjps.tension / 10.0
+        core.inertia = sjps.inertia / 10.0
+        core.extend = sjps.extend / 10.0
+        core.sub_steps = max(1, int(sjps.sub_steps))
         core.threshold = sjps.threshold
         
         core.use_force = sjps.use_force
@@ -157,6 +162,11 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "delay": sjps.delay,
             "recursion": sjps.recursion,
             "strength": sjps.strength,
+            "twist": sjps.twist,
+            "tension": sjps.tension,
+            "inertia": sjps.inertia,
+            "extend": sjps.extend,
+            "sub_steps": sjps.sub_steps,
             "use_force": sjps.use_force,
             "force_vector": [v for v in sjps.force_vector],
             "force_strength": sjps.force_strength,
@@ -196,6 +206,11 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.delay = data.get("delay", sjps.delay)
             sjps.recursion = data.get("recursion", sjps.recursion)
             sjps.strength = data.get("strength", sjps.strength)
+            sjps.twist = data.get("twist", sjps.twist)
+            sjps.tension = data.get("tension", sjps.tension)
+            sjps.inertia = data.get("inertia", sjps.inertia)
+            sjps.extend = data.get("extend", sjps.extend)
+            sjps.sub_steps = data.get("sub_steps", sjps.sub_steps)
             sjps.use_force = data.get("use_force", sjps.use_force)
             if "force_vector" in data:
                 sjps.force_vector = data["force_vector"]
@@ -227,6 +242,11 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.delay = 3.0
         sjps.recursion = 5.0
         sjps.strength = 1.0
+        sjps.twist = 0.0
+        sjps.tension = 0.0
+        sjps.inertia = 0.0
+        sjps.extend = 0.0
+        sjps.sub_steps = 1
         sjps.use_force = False
         sjps.force_vector = (0, 0, -1)
         sjps.force_strength = 0.1

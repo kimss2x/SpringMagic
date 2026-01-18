@@ -31,6 +31,16 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         col.prop(sjps, "delay")
         col.prop(sjps, "recursion")
         col.prop(sjps, "strength")
+        col.prop(sjps, "show_advanced")
+        if sjps.show_advanced:
+            row = col.row(align=True)
+            row.prop(sjps, "twist")
+            row.prop(sjps, "tension")
+            
+            row = col.row(align=True)
+            row.prop(sjps, "inertia")
+            row.prop(sjps, "extend")
+            col.prop(sjps, "sub_steps")
 
         # Force Settings
         col = layout.column(align=True)

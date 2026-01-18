@@ -14,6 +14,11 @@ class PhaserCore(object):
         self.delay = 5.0
         self.recursion = 5.0
         self.strength = 1.0
+        self.twist = 0.0
+        self.tension = 0.0
+        self.inertia = 0.0
+        self.extend = 0.0
+        self.sub_steps = 1
         self.threshold = 0.001
         self.sf = 0
         self.ef = 10
@@ -113,7 +118,8 @@ class PhaserCore(object):
             "obj_list": tree,
             "pre_mt": [],
             "obj_length": [],
-            "old_vec": []
+            "old_vec": [],
+            "old_tip": []
         }
 
     def get_bone_length_matrix(self, pbn, matrix_world):
@@ -154,6 +160,7 @@ class PhaserCore(object):
                     
                     data["obj_length"].append(self.get_bone_length_matrix(pbn, amt_world))
                     data["old_vec"].append(mathutils.Vector((0.0, 0.0, 0.0)))
+                    data["old_tip"].append(amt_world @ pbn.tail)
 
                     if i == len(obj_list) - 1:
                         end_mt = self.get_end_pos_from_bonelength(pbn, amt_world)
@@ -415,7 +422,7 @@ class PhaserCore(object):
                 
         return total_force
 
-    def calculate_step(self, obj_data, context):
+    def calculate_step(self, obj_data, context, dt_scale=1.0, insert_key=True):
         r"""Perform single step calculation"""
         amt = context.active_object
         amt_world = amt.matrix_world
@@ -428,6 +435,10 @@ class PhaserCore(object):
 
         strgh = self.strength
         trshd = self.threshold
+        twst = self.twist
+        tens = self.tension
+        inrt = self.inertia
+        ext_scale = 1.0 + self.extend
         
         # Base Constant Force
         force_vec_world = self.force_vector.normalized() * self.force_strength if self.use_force else mathutils.Vector((0,0,0))
@@ -467,6 +478,7 @@ class PhaserCore(object):
                 roll = roll / self.delay
             else:
                 roll = 0
+            roll = roll * (1.0 - twst) * dt_scale
 
             check_vec = new_x_vec.cross(tag_x_vec)
             if check_vec.dot(tag_y_vec) < 0.0:
@@ -485,6 +497,9 @@ class PhaserCore(object):
             
             base_phase = (new_y_vec - (y_vec * strgh))
             phase_vec = (base_phase / self.delay) + rcs_vec
+            if inrt > 0.0:
+                prev_tip = obj_data["old_tip"][i]
+                phase_vec += (c_pos - prev_tip) * inrt
             
             # Apply Base Force
             if self.use_force:
@@ -499,6 +514,10 @@ class PhaserCore(object):
                 # Using 0.01 factor to tame raw values typically returned by physics engines
                 phase_vec += scene_force * 0.01 * (1.0 / max(self.delay, 1.0))
 
+            phase_vec = phase_vec * dt_scale
+            if tens > 0.0:
+                phase_vec = phase_vec * (1.0 - tens)
+
             if phase_vec.length < trshd:
                 phase_vec = mathutils.Vector((0.0, 0.0, 0.0))
 
@@ -508,7 +527,7 @@ class PhaserCore(object):
             y_vec.normalize()
             if ((self.use_collision and self._collision_bones) or
                 (self.use_collision_collection and self._collection_colliders)):
-                bone_len = obj_data["obj_length"][i+1].translation.length
+                bone_len = obj_data["obj_length"][i+1].translation.length * ext_scale
                 if bone_len > 0.0:
                     tip_pos = tag_pos + (y_vec * bone_len)
                     corrected_tip = tip_pos
@@ -527,7 +546,7 @@ class PhaserCore(object):
             x_vec = y_vec.cross(new_z_vec).normalized()
             z_vec = x_vec.cross(y_vec).normalized()
             
-            final_rot = mathutils.Matrix((x_vec, y_vec, z_vec)).transposed().to_4x4()
+            final_rot = mathutils.Matrix((x_vec, y_vec * ext_scale, z_vec)).transposed().to_4x4()
             final_rot.translation = tag_pos
             new_mt = final_rot
 
@@ -535,13 +554,15 @@ class PhaserCore(object):
             obj.matrix = amt_world.inverted() @ new_mt
             
             context.view_layer.update()
-            self.set_animkey(obj, context)
+            if insert_key:
+                self.set_animkey(obj, context)
 
             obj_data["pre_mt"][i] = copy.copy(new_mt)
             cur_p_mt = copy.copy(new_mt)
             
             next_start_mt = cur_p_mt @ obj_data["obj_length"][i+1]
             obj_data["pre_mt"][i+1].translation = next_start_mt.translation
+            obj_data["old_tip"][i] = c_pos.copy()
 
     def set_animkey(self, obj, context):
         f = context.scene.frame_current
@@ -567,12 +588,16 @@ class PhaserCore(object):
 
     def execute_simulation(self, obj_trees, context):
         dct_k = sorted(obj_trees.keys())
-        
+        sub_steps = max(1, int(self.sub_steps))
+        dt_scale = 1.0 / sub_steps
+
         for f in range(self.sf + 1, self.ef + 1):
             context.scene.frame_set(f)
-            for k in dct_k:
-                for t in obj_trees[k]:
-                    self.calculate_step(obj_trees[k][t], context)
+            for s in range(sub_steps):
+                insert_key = (s == sub_steps - 1)
+                for k in dct_k:
+                    for t in obj_trees[k]:
+                        self.calculate_step(obj_trees[k][t], context, dt_scale, insert_key)
         
         return True
 
