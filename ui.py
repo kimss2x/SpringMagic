@@ -43,6 +43,18 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
             box.prop(sjps, "force_vector")
             box.prop(sjps, "force_strength")            
 
+        # Collision
+        col = layout.column(align=True)
+        col.label(text="Collision:")
+        col.prop(sjps, "use_collision", text="Bone Collision")
+        if sjps.use_collision:
+            col.prop(sjps, "collision_margin", text="Radius Offset")
+            col.prop(sjps, "collision_length_offset", text="Length Offset")
+        col.separator()
+        col.prop(sjps, "use_collision_collection", text="Collision Collection")
+        if sjps.use_collision_collection:
+            col.prop(sjps, "collision_collection", text="Collection")
+
         # System
         col = layout.column(align=False)
         col.prop(sjps, "threshold")

@@ -28,6 +28,15 @@ class PhaserCore(object):
         self.use_scene_fields = False
         self._cached_fields = []
 
+        # Collision
+        self.use_collision = False
+        self.collision_margin = 0.0
+        self.collision_length_offset = 0.0
+        self.use_collision_collection = False
+        self.collision_collection = None
+        self._collision_bones = []
+        self._collection_colliders = []
+
     def get_tree_list(self, context, selected_bones=None):
         r"""Get list of bone chains (trees) from selection"""
         tree_roots = []
@@ -129,6 +138,10 @@ class PhaserCore(object):
         # Cache fields once if enabled
         if self.use_scene_fields:
             self._cache_scene_fields(context)
+        if self.use_collision:
+            self._cache_collision_bones(obj_trees)
+        if self.use_collision_collection:
+            self._cache_collection_colliders()
 
         for k in dct_k:
             for t in obj_trees[k]:
@@ -158,6 +171,192 @@ class PhaserCore(object):
         for obj in context.scene.objects:
             if obj.field and obj.field.type in {'WIND', 'FORCE', 'VORTEX'}: # Support simplified types
                  self._cached_fields.append(obj)
+
+    def _cache_collision_bones(self, obj_trees):
+        r"""Collect bones used for collision checks"""
+        self._collision_bones = self._get_unique_bones(obj_trees)
+
+    def _cache_collection_colliders(self):
+        r"""Collect collection objects with rigid body collision shapes"""
+        self._collection_colliders = []
+        if not self.collision_collection:
+            return
+        for obj in self.collision_collection.all_objects:
+            if obj.type != 'MESH':
+                continue
+            shape = None
+            margin = 0.0
+            if obj.rigid_body:
+                shape = obj.rigid_body.collision_shape
+                margin = max(margin, obj.rigid_body.collision_margin)
+            else:
+                has_collision = False
+                if hasattr(obj, "collision") and obj.collision:
+                    has_collision = True
+                if any(mod.type == 'COLLISION' for mod in obj.modifiers):
+                    has_collision = True
+                if has_collision:
+                    shape = 'BOX'
+                    if hasattr(obj, "collision") and obj.collision:
+                        margin = max(margin, obj.collision.thickness_outer)
+            if not shape:
+                continue
+            if shape in {'CONVEX_HULL', 'MESH'}:
+                shape = 'BOX'
+            self._collection_colliders.append({
+                "obj": obj,
+                "shape": shape,
+                "margin": margin
+            })
+
+    def _capsule_from_bone(self, pbn, amt_world):
+        head = amt_world @ pbn.head
+        tail = amt_world @ pbn.tail
+        axis = tail - head
+        if axis.length > 0.0 and self.collision_length_offset > 0.0:
+            axis.normalize()
+            half_offset = self.collision_length_offset * 0.5
+            head = head - (axis * half_offset)
+            tail = tail + (axis * half_offset)
+        radius = max(pbn.bone.head_radius, pbn.bone.tail_radius, 0.001)
+        radius = radius + self.collision_margin
+        return head, tail, radius
+
+    def _closest_point_on_segment(self, p, a, b):
+        ab = b - a
+        ab_len_sq = ab.length_squared
+        if ab_len_sq == 0.0:
+            return a
+        t = (p - a).dot(ab) / ab_len_sq
+        t = math_utils.clamp(t, 0.0, 1.0)
+        return a + (ab * t)
+
+    def _apply_capsule_collision(self, point, amt_world, exclude_names=None):
+        corrected = point
+        for bone in self._collision_bones:
+            if exclude_names and bone.name in exclude_names:
+                continue
+            head, tail, radius = self._capsule_from_bone(bone, amt_world)
+            closest = self._closest_point_on_segment(corrected, head, tail)
+            delta = corrected - closest
+            dist = delta.length
+            if dist < radius:
+                if dist < 0.000001:
+                    axis = (tail - head).normalized()
+                    delta = axis.cross(mathutils.Vector((1.0, 0.0, 0.0)))
+                    if delta.length < 0.000001:
+                        delta = axis.cross(mathutils.Vector((0.0, 1.0, 0.0)))
+                    dist = delta.length
+                if dist > 0.0:
+                    delta.normalize()
+                    corrected = closest + (delta * radius)
+        return corrected
+
+    def _apply_collection_collision(self, point):
+        corrected = point
+        for col in self._collection_colliders:
+            corrected = self._apply_object_collider(corrected, col)
+        return corrected
+
+    def _apply_object_collider(self, point, col):
+        obj = col["obj"]
+        shape = col["shape"]
+        margin = col.get("margin", 0.0)
+        if shape == 'SPHERE':
+            return self._collide_sphere(point, obj, margin)
+        if shape in {'CAPSULE', 'CYLINDER'}:
+            return self._collide_capsule(point, obj, margin)
+        return self._collide_box(point, obj, margin)
+
+    def _collide_sphere(self, point, obj, margin):
+        center = obj.matrix_world.translation
+        radius = max(obj.dimensions.x, obj.dimensions.y, obj.dimensions.z) * 0.5 + margin
+        if radius <= 0.0:
+            return point
+        delta = point - center
+        dist = delta.length
+        if dist < radius:
+            if dist < 0.000001:
+                delta = mathutils.Vector((1.0, 0.0, 0.0))
+                dist = delta.length
+            delta.normalize()
+            return center + (delta * radius)
+        return point
+
+    def _collide_box(self, point, obj, margin):
+        inv = obj.matrix_world.inverted_safe()
+        local = inv @ point
+        bounds = obj.bound_box
+        min_x = min(v[0] for v in bounds)
+        max_x = max(v[0] for v in bounds)
+        min_y = min(v[1] for v in bounds)
+        max_y = max(v[1] for v in bounds)
+        min_z = min(v[2] for v in bounds)
+        max_z = max(v[2] for v in bounds)
+        if min_x == max_x:
+            expand = max(0.0001, margin)
+            min_x -= expand
+            max_x += expand
+        else:
+            min_x -= margin
+            max_x += margin
+        if min_y == max_y:
+            expand = max(0.0001, margin)
+            min_y -= expand
+            max_y += expand
+        else:
+            min_y -= margin
+            max_y += margin
+        if min_z == max_z:
+            expand = max(0.0001, margin)
+            min_z -= expand
+            max_z += expand
+        else:
+            min_z -= margin
+            max_z += margin
+        if (min_x <= local.x <= max_x and min_y <= local.y <= max_y and min_z <= local.z <= max_z):
+            dx = min(local.x - min_x, max_x - local.x)
+            dy = min(local.y - min_y, max_y - local.y)
+            dz = min(local.z - min_z, max_z - local.z)
+            if dx <= dy and dx <= dz:
+                local.x = min_x if (local.x - min_x) < (max_x - local.x) else max_x
+            elif dy <= dz:
+                local.y = min_y if (local.y - min_y) < (max_y - local.y) else max_y
+            else:
+                local.z = min_z if (local.z - min_z) < (max_z - local.z) else max_z
+            return obj.matrix_world @ local
+        return point
+
+    def _collide_capsule(self, point, obj, margin):
+        dims = obj.dimensions
+        base_radius = max(dims.x, dims.y) * 0.5
+        radius = base_radius + margin
+        if radius <= 0.0:
+            return point
+        half_height = max(0.0, (dims.z * 0.5) - base_radius)
+        half_height = half_height + margin
+
+        axis = obj.matrix_world.to_3x3() @ mathutils.Vector((0.0, 0.0, 1.0))
+        if axis.length == 0.0:
+            return point
+        axis.normalize()
+
+        center = obj.matrix_world.translation
+        p0 = center - (axis * half_height)
+        p1 = center + (axis * half_height)
+        closest = self._closest_point_on_segment(point, p0, p1)
+        delta = point - closest
+        dist = delta.length
+        if dist < radius:
+            if dist < 0.000001:
+                delta = axis.cross(mathutils.Vector((1.0, 0.0, 0.0)))
+                if delta.length < 0.000001:
+                    delta = axis.cross(mathutils.Vector((0.0, 1.0, 0.0)))
+                dist = delta.length
+            if dist > 0.0:
+                delta.normalize()
+                return closest + (delta * radius)
+        return point
 
     def calculate_scene_forces(self, position):
         r"""Calculate summed force vector from scene fields at a position"""
@@ -307,6 +506,23 @@ class PhaserCore(object):
             obj_data["old_vec"][i] = phase_vec
 
             y_vec.normalize()
+            if ((self.use_collision and self._collision_bones) or
+                (self.use_collision_collection and self._collection_colliders)):
+                bone_len = obj_data["obj_length"][i+1].translation.length
+                if bone_len > 0.0:
+                    tip_pos = tag_pos + (y_vec * bone_len)
+                    corrected_tip = tip_pos
+                    if self.use_collision and self._collision_bones:
+                        exclude_names = {obj.name}
+                        if obj.parent:
+                            exclude_names.add(obj.parent.name)
+                        for child in obj.children:
+                            exclude_names.add(child.name)
+                        corrected_tip = self._apply_capsule_collision(tip_pos, amt_world, exclude_names)
+                    if self.use_collision_collection and self._collection_colliders:
+                        corrected_tip = self._apply_collection_collision(corrected_tip)
+                    if (corrected_tip - tag_pos).length > 0.000001:
+                        y_vec = (corrected_tip - tag_pos).normalized()
             new_z_vec = new_mt.to_3x3().col[2].normalized()
             x_vec = y_vec.cross(new_z_vec).normalized()
             z_vec = x_vec.cross(y_vec).normalized()

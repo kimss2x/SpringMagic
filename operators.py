@@ -34,6 +34,7 @@ def _get_effective_selection(context, include_children=False):
         return _expand_with_children(selected)
     return selected
 
+
 class SpringMagicPhaserCalculate(bpy.types.Operator):
     r"""Generate phase animation"""
     bl_idname = "sj_phaser.calculate"
@@ -63,6 +64,11 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         
         # Pass new property
         core.use_scene_fields = sjps.use_scene_fields
+        core.use_collision = sjps.use_collision
+        core.collision_margin = sjps.collision_margin
+        core.collision_length_offset = sjps.collision_length_offset
+        core.use_collision_collection = sjps.use_collision_collection
+        core.collision_collection = sjps.collision_collection
 
         if core.sf >= core.ef:
             self.report({'ERROR'}, "Start Frame must be smaller than End Frame.")
@@ -155,6 +161,11 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "force_vector": [v for v in sjps.force_vector],
             "force_strength": sjps.force_strength,
             "use_scene_fields": sjps.use_scene_fields,
+            "use_collision": sjps.use_collision,
+            "collision_margin": sjps.collision_margin,
+            "collision_length_offset": sjps.collision_length_offset,
+            "use_collision_collection": sjps.use_collision_collection,
+            "collision_collection": sjps.collision_collection.name if sjps.collision_collection else "",
             "use_loop": sjps.use_loop,
             "use_chain": sjps.use_chain
         }
@@ -190,6 +201,12 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
                 sjps.force_vector = data["force_vector"]
             sjps.force_strength = data.get("force_strength", sjps.force_strength)
             sjps.use_scene_fields = data.get("use_scene_fields", False)
+            sjps.use_collision = data.get("use_collision", False)
+            sjps.collision_margin = data.get("collision_margin", sjps.collision_margin)
+            sjps.collision_length_offset = data.get("collision_length_offset", sjps.collision_length_offset)
+            sjps.use_collision_collection = data.get("use_collision_collection", False)
+            collection_name = data.get("collision_collection", "")
+            sjps.collision_collection = bpy.data.collections.get(collection_name) if collection_name else None
             sjps.use_loop = data.get("use_loop", False)
             sjps.use_chain = data.get("use_chain", False)
             
@@ -214,6 +231,11 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.force_vector = (0, 0, -1)
         sjps.force_strength = 0.1
         sjps.use_scene_fields = False
+        sjps.use_collision = False
+        sjps.collision_margin = 0.0
+        sjps.collision_length_offset = 0.0
+        sjps.use_collision_collection = False
+        sjps.collision_collection = None
         sjps.use_loop = False
         sjps.use_chain = False
         sjps.threshold = 0.001

@@ -47,6 +47,33 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         default=False
     )
 
+    # Collision
+    use_collision: bpy.props.BoolProperty(
+        name="Collision",
+        description="Enable bone-based capsule collision for bone tips",
+        default=False
+    )
+    collision_margin: bpy.props.FloatProperty(
+        name="Radius Offset",
+        description="Extra offset added to bone collision radius",
+        default=0.0, min=0.0, max=1.0, precision=3
+    )
+    collision_length_offset: bpy.props.FloatProperty(
+        name="Length Offset",
+        description="Extra length added to bone collision capsule",
+        default=0.0, min=0.0, max=10.0, precision=3
+    )
+    use_collision_collection: bpy.props.BoolProperty(
+        name="Collection Collision",
+        description="Use collection objects with rigid body or collision physics shapes",
+        default=False
+    )
+    collision_collection: bpy.props.PointerProperty(
+        name="Collision Collection",
+        description="Collection of collision objects",
+        type=bpy.types.Collection
+    )
+
     # Presets
     preset_enum: bpy.props.EnumProperty(
         name="Presets",
