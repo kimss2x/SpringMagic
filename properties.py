@@ -54,6 +54,18 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         items=preset_manager.get_enum_items
     )
 
+    # Options
+    use_loop: bpy.props.BoolProperty(
+        name="Loop",
+        description="Match end frame to start frame for seamless loops",
+        default=False
+    )
+    use_chain: bpy.props.BoolProperty(
+        name="Chain",
+        description="Include children of selected bones when baking",
+        default=False
+    )
+
     # System
     threshold: bpy.props.FloatProperty(
         name="Threshold",

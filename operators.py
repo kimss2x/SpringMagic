@@ -2,6 +2,38 @@ import bpy
 from .core.phaser import PhaserCore
 from .core.utils import preset_manager
 
+def _get_selected_pose_bones(context):
+    try:
+        selected = context.selected_pose_bones
+    except AttributeError:
+        if bpy.context.active_object and bpy.context.active_object.mode == 'POSE':
+            selected = bpy.context.selected_pose_bones
+        else:
+            selected = []
+    if not selected:
+        return []
+    return list(selected)
+
+def _expand_with_children(bones):
+    result = list(bones)
+    seen = {b.name for b in bones}
+    stack = list(bones)
+    while stack:
+        bone = stack.pop()
+        for child in bone.children:
+            if child.name in seen:
+                continue
+            seen.add(child.name)
+            result.append(child)
+            stack.append(child)
+    return result
+
+def _get_effective_selection(context, include_children=False):
+    selected = _get_selected_pose_bones(context)
+    if include_children and selected:
+        return _expand_with_children(selected)
+    return selected
+
 class SpringMagicPhaserCalculate(bpy.types.Operator):
     r"""Generate phase animation"""
     bl_idname = "sj_phaser.calculate"
@@ -39,7 +71,8 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         context.scene.frame_set(core.sf)
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         
-        obj_trees = core.get_tree_list(context)
+        selected = _get_effective_selection(context, sjps.use_chain)
+        obj_trees = core.get_tree_list(context, selected)
         core.delete_anim_keys(obj_trees, context)
         
         for k in obj_trees:
@@ -49,6 +82,8 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
 
         obj_trees = core.set_pre_data(obj_trees, context)
         core.execute_simulation(obj_trees, context)
+        if sjps.use_loop:
+            core.match_end_to_start(obj_trees, context)
 
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         return {'FINISHED'}
@@ -78,7 +113,8 @@ class SpringMagicPhaserDelAnim(bpy.types.Operator):
         context.scene.frame_set(core.sf)
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         
-        obj_trees = core.get_tree_list(context)
+        selected = _get_effective_selection(context, sjps.use_chain)
+        obj_trees = core.get_tree_list(context, selected)
         core.delete_anim_keys(obj_trees, context)
         
         for k in obj_trees:
@@ -118,7 +154,9 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "use_force": sjps.use_force,
             "force_vector": [v for v in sjps.force_vector],
             "force_strength": sjps.force_strength,
-            "use_scene_fields": sjps.use_scene_fields
+            "use_scene_fields": sjps.use_scene_fields,
+            "use_loop": sjps.use_loop,
+            "use_chain": sjps.use_chain
         }
         
         if preset_manager.save_preset(name, data):
@@ -152,6 +190,8 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
                 sjps.force_vector = data["force_vector"]
             sjps.force_strength = data.get("force_strength", sjps.force_strength)
             sjps.use_scene_fields = data.get("use_scene_fields", False)
+            sjps.use_loop = data.get("use_loop", False)
+            sjps.use_chain = data.get("use_chain", False)
             
             self.report({'INFO'}, f"Loaded preset: {name}")
         else:
@@ -174,6 +214,8 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.force_vector = (0, 0, -1)
         sjps.force_strength = 0.1
         sjps.use_scene_fields = False
+        sjps.use_loop = False
+        sjps.use_chain = False
         sjps.threshold = 0.001
         
         self.report({'INFO'}, "Settings reset to default.")

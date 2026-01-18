@@ -22,13 +22,9 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row.operator("sj_phaser.save_preset", text="", icon="EXPORT")
         row.operator("sj_phaser.reset_default", text="", icon="LOOP_BACK")
 
-        layout.separator()
-
         # Frame Range Info
         layout.label(text=f"Scene Frame Range: {scene.frame_start} - {scene.frame_end}")
         
-        layout.separator()
-
         # Core Properties
         col = layout.column(align=True)
         col.label(text="Phaser Settings:")
@@ -36,12 +32,9 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         col.prop(sjps, "recursion")
         col.prop(sjps, "strength")
 
-        layout.separator()
-
         # Force Settings
         col = layout.column(align=True)
         row = col.row(align=True)
-
         sub = row.split(factor=0.2, align=True)
         sub.prop(sjps, "use_scene_fields", toggle=True, icon="FORCE_WIND", text="")
         sub.prop(sjps, "use_force", toggle=True)
@@ -50,17 +43,18 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
             box.prop(sjps, "force_vector")
             box.prop(sjps, "force_strength")            
 
-        layout.separator()
-
         # System
         col = layout.column(align=False)
         col.prop(sjps, "threshold")
 
-        layout.separator()
-        layout.label(text="Actions:")
-        row = layout.row()
+        col = layout.column(align=True)
+        col.label(text="Options:")
+        row = col.row(align=True)
+        row.prop(sjps, "use_loop", icon="CON_FOLLOWPATH", text="Loop")
+        row.prop(sjps, "use_chain", icon="LINKED", text="Chain")
+
+        layout.label(text="Actions(Bake):")
+        row = layout.row(align=True)
         row.scale_y = 1.5
         row.operator("sj_phaser.calculate", text="Calculate Physics", icon="PHYSICS")
-        
-        row = layout.row()
-        row.operator("sj_phaser.del_anim", text="Clear Animation", icon="TRASH")
+        row.operator("sj_phaser.del_anim", text="", icon="TRASH")

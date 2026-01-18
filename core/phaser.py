@@ -28,20 +28,23 @@ class PhaserCore(object):
         self.use_scene_fields = False
         self._cached_fields = []
 
-    def get_tree_list(self, context):
+    def get_tree_list(self, context, selected_bones=None):
         r"""Get list of bone chains (trees) from selection"""
         tree_roots = []
         obj_trees = {}
         
-        try:
-            selected = context.selected_pose_bones
-        except AttributeError:
-            # Fallback if context is not view_layer/pose specific
-            import bpy
-            if bpy.context.active_object and bpy.context.active_object.mode == 'POSE':
-                selected = bpy.context.selected_pose_bones
-            else:
-                return {}
+        if selected_bones is None:
+            try:
+                selected = context.selected_pose_bones
+            except AttributeError:
+                # Fallback if context is not view_layer/pose specific
+                import bpy
+                if bpy.context.active_object and bpy.context.active_object.mode == 'POSE':
+                    selected = bpy.context.selected_pose_bones
+                else:
+                    return {}
+        else:
+            selected = selected_bones
 
         if not selected:
             return {}
@@ -87,6 +90,14 @@ class PhaserCore(object):
             t_cnt += 1
 
         return obj_trees
+
+    def _get_unique_bones(self, obj_trees):
+        bones = {}
+        for k in obj_trees:
+            for t in obj_trees[k]:
+                for pbn in obj_trees[k][t]["obj_list"]:
+                    bones[pbn.name] = pbn
+        return list(bones.values())
 
     def _create_data_structure(self, tree):
         return {
@@ -348,3 +359,26 @@ class PhaserCore(object):
                     self.calculate_step(obj_trees[k][t], context)
         
         return True
+
+    def match_end_to_start(self, obj_trees, context):
+        r"""Set end frame pose to match start frame for seamless loops."""
+        if not obj_trees:
+            return
+
+        bones = self._get_unique_bones(obj_trees)
+        if not bones:
+            return
+
+        context.scene.frame_set(self.sf)
+        context.view_layer.update()
+        start_mats = {b.name: b.matrix.copy() for b in bones}
+
+        context.scene.frame_set(self.ef)
+        for bone in bones:
+            start_mt = start_mats.get(bone.name)
+            if start_mt is None:
+                continue
+            bone.matrix = start_mt
+            self.set_animkey(bone, context)
+
+        context.view_layer.update()
