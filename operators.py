@@ -1,4 +1,7 @@
 import bpy
+import json
+import time
+import urllib.request
 from .core.phaser import PhaserCore
 from .core.utils import preset_manager
 
@@ -33,6 +36,27 @@ def _get_effective_selection(context, include_children=False):
     if include_children and selected:
         return _expand_with_children(selected)
     return selected
+
+def _get_addon_prefs(context):
+    addon = context.preferences.addons.get(__package__)
+    if addon:
+        return addon.preferences
+    return None
+
+def _parse_version(value):
+    if isinstance(value, (list, tuple)):
+        parts = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.startswith(("v", "V")):
+            text = text[1:]
+        parts = text.split(".")
+    else:
+        return None
+    try:
+        return tuple(int(p) for p in parts)
+    except (TypeError, ValueError):
+        return None
 
 
 class SpringMagicPhaserCalculate(bpy.types.Operator):
@@ -69,6 +93,11 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         
         # Pass new property
         core.use_scene_fields = sjps.use_scene_fields
+        core.use_wind_object = sjps.use_wind_object
+        core.wind_object = sjps.wind_object
+        core.wind_min_strength = sjps.wind_min_strength
+        core.wind_max_strength = sjps.wind_max_strength
+        core.wind_frequency = sjps.wind_frequency
         core.use_collision = sjps.use_collision
         core.collision_margin = sjps.collision_margin
         core.collision_length_offset = sjps.collision_length_offset
@@ -173,6 +202,11 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "force_vector": [v for v in sjps.force_vector],
             "force_strength": sjps.force_strength,
             "use_scene_fields": sjps.use_scene_fields,
+            "use_wind_object": sjps.use_wind_object,
+            "wind_object": sjps.wind_object.name if sjps.wind_object else "",
+            "wind_min_strength": sjps.wind_min_strength,
+            "wind_max_strength": sjps.wind_max_strength,
+            "wind_frequency": sjps.wind_frequency,
             "use_collision": sjps.use_collision,
             "collision_margin": sjps.collision_margin,
             "collision_length_offset": sjps.collision_length_offset,
@@ -220,6 +254,12 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
                 sjps.force_vector = data["force_vector"]
             sjps.force_strength = data.get("force_strength", sjps.force_strength)
             sjps.use_scene_fields = data.get("use_scene_fields", False)
+            sjps.use_wind_object = data.get("use_wind_object", False)
+            wind_obj_name = data.get("wind_object", "")
+            sjps.wind_object = bpy.data.objects.get(wind_obj_name) if wind_obj_name else None
+            sjps.wind_min_strength = data.get("wind_min_strength", sjps.wind_min_strength)
+            sjps.wind_max_strength = data.get("wind_max_strength", sjps.wind_max_strength)
+            sjps.wind_frequency = data.get("wind_frequency", sjps.wind_frequency)
             sjps.use_collision = data.get("use_collision", False)
             sjps.collision_margin = data.get("collision_margin", sjps.collision_margin)
             sjps.collision_length_offset = data.get("collision_length_offset", sjps.collision_length_offset)
@@ -258,6 +298,11 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.force_vector = (0, 0, -1)
         sjps.force_strength = 0.1
         sjps.use_scene_fields = False
+        sjps.use_wind_object = False
+        sjps.wind_object = None
+        sjps.wind_min_strength = 0.0
+        sjps.wind_max_strength = 1.0
+        sjps.wind_frequency = 0.5
         sjps.use_collision = False
         sjps.collision_margin = 0.0
         sjps.collision_length_offset = 0.0
@@ -270,4 +315,62 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.threshold = 0.001
         
         self.report({'INFO'}, "Settings reset to default.")
+        return {'FINISHED'}
+
+class SpringMagicCheckUpdate(bpy.types.Operator):
+    r"""Check for add-on updates"""
+    bl_idname = "sj_phaser.check_update"
+    bl_label = "Check Updates"
+    bl_description = "Check for updates using the configured Update URL"
+
+    def execute(self, context):
+        prefs = _get_addon_prefs(context)
+        if not prefs or not prefs.update_url:
+            self.report({'ERROR'}, "Set Update URL in add-on preferences.")
+            return {'CANCELLED'}
+
+        try:
+            with urllib.request.urlopen(prefs.update_url, timeout=5) as resp:
+                raw = resp.read().decode("utf-8")
+        except Exception as exc:
+            self.report({'ERROR'}, f"Update check failed: {exc}")
+            return {'CANCELLED'}
+
+        data = None
+        latest_version = None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = raw.strip()
+
+        if isinstance(data, dict):
+            latest_version = _parse_version(data.get("version"))
+        else:
+            latest_version = _parse_version(data)
+
+        if not latest_version:
+            self.report({'ERROR'}, "Update data missing a valid version.")
+            return {'CANCELLED'}
+
+        addon = context.preferences.addons.get(__package__)
+        current_version = (0, 0, 0)
+        if addon and hasattr(addon, "module") and hasattr(addon.module, "bl_info"):
+            current_version = addon.module.bl_info.get("version", current_version)
+
+        latest_str = ".".join(str(v) for v in latest_version)
+        current_str = ".".join(str(v) for v in current_version)
+
+        prefs.last_update_version = latest_str
+        prefs.last_checked = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        if latest_version > tuple(current_version):
+            prefs.last_update_status = f"Update available: {latest_str} (current {current_str})"
+            self.report({'INFO'}, prefs.last_update_status)
+        elif latest_version == tuple(current_version):
+            prefs.last_update_status = f"Up to date: {current_str}"
+            self.report({'INFO'}, prefs.last_update_status)
+        else:
+            prefs.last_update_status = f"Local version ahead: {current_str}"
+            self.report({'INFO'}, prefs.last_update_status)
+
         return {'FINISHED'}

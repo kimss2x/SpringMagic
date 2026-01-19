@@ -32,6 +32,11 @@ class PhaserCore(object):
         # Scene Fields
         self.use_scene_fields = False
         self._cached_fields = []
+        self.use_wind_object = False
+        self.wind_object = None
+        self.wind_min_strength = 0.0
+        self.wind_max_strength = 1.0
+        self.wind_frequency = 0.5
 
         # Collision
         self.use_collision = False
@@ -455,6 +460,37 @@ class PhaserCore(object):
                 
         return total_force
 
+    def _get_scene_fps(self, scene):
+        fps_base = scene.render.fps_base or 1.0
+        fps = scene.render.fps / fps_base
+        if fps <= 0.0:
+            return 24.0
+        return fps
+
+    def _calculate_wind_vector(self, context):
+        obj = self.wind_object
+        if not obj:
+            return mathutils.Vector((0.0, 0.0, 0.0))
+        direction = obj.matrix_world.to_3x3() @ mathutils.Vector((0.0, 0.0, 1.0))
+        if direction.length == 0.0:
+            return mathutils.Vector((0.0, 0.0, 0.0))
+        direction.normalize()
+
+        min_strength = self.wind_min_strength
+        max_strength = self.wind_max_strength
+        if min_strength > max_strength:
+            min_strength, max_strength = max_strength, min_strength
+
+        if self.wind_frequency <= 0.0:
+            strength = max_strength
+        else:
+            scene_fps = self._get_scene_fps(context.scene)
+            time = context.scene.frame_current / scene_fps
+            phase = time * self.wind_frequency * math.pi * 2.0
+            strength = min_strength + ((max_strength - min_strength) * (0.5 + 0.5 * math.sin(phase)))
+
+        return direction * strength
+
     def calculate_step(self, obj_data, context, dt_scale=1.0, insert_key=True):
         r"""Perform single step calculation"""
         amt = context.active_object
@@ -475,6 +511,7 @@ class PhaserCore(object):
         
         # Base Constant Force
         force_vec_world = self.force_vector.normalized() * self.force_strength if self.use_force else mathutils.Vector((0,0,0))
+        wind_vec_world = self._calculate_wind_vector(context) if self.use_wind_object else mathutils.Vector((0,0,0))
         
         for i in range(len(obj_data["obj_list"])):
             obj = obj_data["obj_list"][i]
@@ -537,6 +574,10 @@ class PhaserCore(object):
             # Apply Base Force
             if self.use_force:
                 phase_vec += force_vec_world * (1.0 / max(self.delay, 1.0))
+
+            # Apply Wind Object
+            if self.use_wind_object and wind_vec_world.length > 0.0:
+                phase_vec += wind_vec_world * (1.0 / max(self.delay, 1.0))
             
             # Apply Scene Fields
             if self.use_scene_fields:

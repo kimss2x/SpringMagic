@@ -76,6 +76,31 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="React to Blender Force Fields (Wind, Force) in the scene",
         default=False
     )
+    use_wind_object: bpy.props.BoolProperty(
+        name="Wind Object",
+        description="Apply procedural wind using an object direction and oscillation",
+        default=False
+    )
+    wind_object: bpy.props.PointerProperty(
+        name="Wind Object",
+        description="Object whose local Z axis defines wind direction",
+        type=bpy.types.Object
+    )
+    wind_min_strength: bpy.props.FloatProperty(
+        name="Min Strength",
+        description="Minimum wind strength",
+        default=0.0, min=-100.0, max=100.0
+    )
+    wind_max_strength: bpy.props.FloatProperty(
+        name="Max Strength",
+        description="Maximum wind strength",
+        default=1.0, min=-100.0, max=100.0
+    )
+    wind_frequency: bpy.props.FloatProperty(
+        name="Frequency",
+        description="Wind oscillation frequency in Hz (0 keeps constant at max)",
+        default=0.5, min=0.0, max=100.0
+    )
 
     # Collision
     use_collision: bpy.props.BoolProperty(

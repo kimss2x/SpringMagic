@@ -9,12 +9,14 @@ wind effects for natural secondary motion.
 - Spring-based follow-through for bone chains
 - Optional constant force (gravity) with direction and strength
 - Optional scene force fields (Wind / Force / Vortex)
+- Wind object with min/max/frequency controls
 - Bone-based collision using bone radius/length with offsets
 - Plane collision using a designated plane object (infinite plane)
 - Collection collision using rigid body or collision physics shapes
 - Extra spring controls: twist, tension, inertia, extend, sub-steps
 - Preset save/load and reset to defaults
 - One-click bake and clear of keyframes
+- Version info panel with optional update check
 
 ## Requirements
 - Blender 5.0 (tested)
@@ -50,6 +52,7 @@ wind effects for natural secondary motion.
 - Collection collision reads rigid body collision shapes and Collision modifiers; convex hull/mesh are approximated as box.
 - Plane collision uses the plane object's local Z axis and is treated as infinite.
 - Collision thickness/margin from physics settings is used to expand collider size.
+- Update check expects a URL that returns JSON like {"version": "1.4.0"} or a plain version string.
 
 ## License
 GPL v2 or later. See the header in `__init__.py`.

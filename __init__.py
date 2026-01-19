@@ -12,7 +12,7 @@ bl_info = {
     "name": "SpringMagic",
     "description": "Physically based bone animation system with spring, force, and wind effects for creating natural secondary motion and overlapping action.",
     "author": "CaptainHansode",
-    "version": (1, 3, 0),
+    "version": (1, 4, 0),
     "blender": (2, 80, 0),
     "location":  "View3D > Sidebar > Tool Tab",
     "warning": "",
@@ -32,6 +32,8 @@ if "bpy" in locals():
         importlib.reload(core.utils.preset_manager)
         importlib.reload(core.phaser)
         
+    if "preferences" in locals():
+        importlib.reload(preferences)
     if "properties" in locals():
         importlib.reload(properties)
     if "operators" in locals():
@@ -39,19 +41,23 @@ if "bpy" in locals():
     if "ui" in locals():
         importlib.reload(ui)
 
+from . import preferences
 from . import properties
 from . import operators
 from . import ui
 from .core import phaser
 
 classes = (
+    preferences.SpringMagicPreferences,
     properties.SpringMagicPhaserProperties,
     operators.SpringMagicPhaserCalculate,
     operators.SpringMagicPhaserDelAnim,
     operators.SpringMagicPhaserSavePreset,
     operators.SpringMagicPhaserLoadPreset,
     operators.SpringMagicPhaserResetDefault,
-    ui.SpringMagicPhaserPanel
+    operators.SpringMagicCheckUpdate,
+    ui.SpringMagicPhaserPanel,
+    ui.SpringMagicInfoPanel
 )
 
 def register():

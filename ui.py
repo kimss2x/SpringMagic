@@ -44,14 +44,22 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
 
         # Force Settings
         col = layout.column(align=True)
+        col.label(text="Forces:")
         row = col.row(align=True)
-        sub = row.split(factor=0.2, align=True)
-        sub.prop(sjps, "use_scene_fields", toggle=True, icon="FORCE_WIND", text="")
-        sub.prop(sjps, "use_force", toggle=True)
+        row.prop(sjps, "use_scene_fields", toggle=True, icon="FORCE_WIND", text="Scene")
+        row.prop(sjps, "use_force", toggle=True, text="Gravity")
+        row.prop(sjps, "use_wind_object", toggle=True, text="Wind Obj")
         if sjps.use_force:
             box = col.box()
             box.prop(sjps, "force_vector")
-            box.prop(sjps, "force_strength")            
+            box.prop(sjps, "force_strength")
+        if sjps.use_wind_object:
+            box = col.box()
+            box.prop(sjps, "wind_object")
+            row = box.row(align=True)
+            row.prop(sjps, "wind_min_strength")
+            row.prop(sjps, "wind_max_strength")
+            box.prop(sjps, "wind_frequency")
 
         # Collision
         col = layout.column(align=True)
@@ -84,3 +92,34 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row.scale_y = 1.5
         row.operator("sj_phaser.calculate", text="Calculate Physics", icon="PHYSICS")
         row.operator("sj_phaser.del_anim", text="", icon="TRASH")
+
+class SpringMagicInfoPanel(bpy.types.Panel):
+    r"""Version and update panel for SpringMagic"""
+    bl_label = "SpringMagic Info"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_context = "posemode"
+    bl_category = "Animation"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        addon = context.preferences.addons.get(__package__)
+        version = None
+        if addon and hasattr(addon, "module") and hasattr(addon.module, "bl_info"):
+            version = addon.module.bl_info.get("version", None)
+        if version:
+            version_str = ".".join(str(v) for v in version)
+            layout.label(text=f"Add-on Version: {version_str}")
+        else:
+            layout.label(text="Add-on Version: Unknown")
+        layout.label(text=f"Blender: {bpy.app.version_string}")
+
+        prefs = addon.preferences if addon else None
+        if prefs:
+            layout.prop(prefs, "update_url")
+            layout.operator("sj_phaser.check_update", text="Check for Updates", icon="FILE_REFRESH")
+            if prefs.last_update_status:
+                layout.label(text=prefs.last_update_status)
+            if prefs.last_checked:
+                layout.label(text=f"Last checked: {prefs.last_checked}")
