@@ -157,6 +157,16 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="Include children of selected bones when baking",
         default=False
     )
+    use_pose_match: bpy.props.BoolProperty(
+        name="Pose Match",
+        description="Match simulation to existing keyframed poses",
+        default=False
+    )
+    pose_match_strength: bpy.props.FloatProperty(
+        name="Match Strength",
+        description="Blend strength when matching to keyframed poses",
+        default=1.0, min=0.0, max=1.0, precision=2
+    )
 
     # System
     threshold: bpy.props.FloatProperty(

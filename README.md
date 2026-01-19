@@ -10,6 +10,7 @@ wind effects for natural secondary motion.
 - Optional constant force (gravity) with direction and strength
 - Optional scene force fields (Wind / Force / Vortex)
 - Wind object with min/max/frequency controls
+- Pose match to existing keyframed poses (optional)
 - Bone-based collision using bone radius/length with offsets
 - Plane collision using a designated plane object (infinite plane)
 - Collection collision using rigid body or collision physics shapes
@@ -40,6 +41,7 @@ wind effects for natural secondary motion.
 8. (Optional) Enable Collection Collision and pick a collection of rigid body colliders.
 9. Click Calculate Physics to bake keys.
 10. Use Clear Animation to remove generated keys.
+11. (Optional) Enable Pose Match to keep keyed poses where keys already exist.
 
 ## Presets
 - Presets are stored as JSON in `presets/`.

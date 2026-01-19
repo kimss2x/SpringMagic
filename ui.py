@@ -86,6 +86,10 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row = col.row(align=True)
         row.prop(sjps, "use_loop", icon="CON_FOLLOWPATH", text="Loop")
         row.prop(sjps, "use_chain", icon="LINKED", text="Chain")
+        row = col.row(align=True)
+        row.prop(sjps, "use_pose_match", icon="KEY_HLT", text="Pose Match")
+        if sjps.use_pose_match:
+            col.prop(sjps, "pose_match_strength", slider=True)
 
         layout.label(text="Actions(Bake):")
         row = layout.row(align=True)

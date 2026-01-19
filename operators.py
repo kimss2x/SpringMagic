@@ -2,6 +2,7 @@ import bpy
 import json
 import time
 import urllib.request
+import mathutils
 from .core.phaser import PhaserCore
 from .core.utils import preset_manager
 
@@ -58,6 +59,171 @@ def _parse_version(value):
     except (TypeError, ValueError):
         return None
 
+def _iter_action_fcurves(action, obj=None):
+    if not action:
+        return []
+    fcurves = getattr(action, "fcurves", None)
+    if fcurves is not None:
+        return list(fcurves)
+
+    found = []
+    seen = set()
+
+    def add_fcurves(items):
+        if not items:
+            return
+        for fcu in items:
+            key_func = getattr(fcu, "as_pointer", None)
+            key = key_func() if callable(key_func) else id(fcu)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(fcu)
+
+    def add_channelbags(bags):
+        if not bags:
+            return
+        for bag in bags:
+            add_fcurves(getattr(bag, "fcurves", None))
+
+    slot = None
+    if obj:
+        anim_data = getattr(obj, "animation_data", None)
+        slot = getattr(anim_data, "action_slot", None) if anim_data else None
+
+    layers_owner = slot.id_data if slot and hasattr(slot, "id_data") else action
+    layers = getattr(layers_owner, "layers", None)
+    if layers is None and layers_owner is not action:
+        layers = getattr(action, "layers", None)
+    if layers:
+        for layer in layers:
+            strips = getattr(layer, "strips", None)
+            if not strips:
+                continue
+            for strip in strips:
+                bag = None
+                channelbag = getattr(strip, "channelbag", None)
+                if callable(channelbag):
+                    try:
+                        bag = channelbag(slot) if slot else channelbag()
+                    except TypeError:
+                        try:
+                            bag = channelbag(slot.handle) if slot else None
+                        except Exception:
+                            bag = None
+                elif channelbag:
+                    bag = channelbag
+                if bag:
+                    add_fcurves(getattr(bag, "fcurves", None))
+                add_fcurves(getattr(strip, "fcurves", None))
+
+    add_channelbags(getattr(action, "channelbags", None))
+    if slot:
+        add_channelbags(getattr(slot, "channelbags", None))
+
+    return found
+
+def _get_keyframes_for_bone(action, bone_name, frame_start, frame_end, obj=None):
+    if not action:
+        return set()
+    frames = set()
+    prefix = f'pose.bones["{bone_name}"].'
+    for fcu in _iter_action_fcurves(action, obj):
+        if not fcu.data_path.startswith(prefix):
+            continue
+        for kp in fcu.keyframe_points:
+            frame = int(round(kp.co.x))
+            if frame_start <= frame <= frame_end:
+                frames.add(frame)
+    return frames
+
+def _collect_pose_match_data(context, bones, frame_start, frame_end):
+    obj = context.active_object
+    if not obj or not bones:
+        return {}
+    anim_data = obj.animation_data
+    action = anim_data.action if anim_data else None
+    if not action:
+        return {}
+
+    bone_frames = {}
+    for bone in bones:
+        frames = _get_keyframes_for_bone(action, bone.name, frame_start, frame_end, obj)
+        if frames:
+            bone_frames[bone.name] = frames
+    if not bone_frames:
+        return {}
+
+    union_frames = sorted({f for frames in bone_frames.values() for f in frames})
+    current_frame = context.scene.frame_current
+    cache = {}
+    for frame in union_frames:
+        context.scene.frame_set(frame)
+        context.view_layer.update()
+        frame_cache = {}
+        for bone_name, frames in bone_frames.items():
+            if frame not in frames:
+                continue
+            pbn = obj.pose.bones.get(bone_name)
+            if not pbn:
+                continue
+            frame_cache[bone_name] = pbn.matrix.copy()
+        if frame_cache:
+            cache[frame] = frame_cache
+
+    context.scene.frame_set(current_frame)
+    context.view_layer.update()
+    return cache
+
+def _get_unique_bones_from_trees(obj_trees):
+    bones = {}
+    for k in obj_trees:
+        for t in obj_trees[k]:
+            for pbn in obj_trees[k][t]["obj_list"]:
+                bones[pbn.name] = pbn
+    return list(bones.values())
+
+def _blend_matrix(base_mat, target_mat, strength):
+    loc_a, rot_a, scale_a = base_mat.decompose()
+    loc_b, rot_b, scale_b = target_mat.decompose()
+    loc = loc_a.lerp(loc_b, strength)
+    rot = rot_a.slerp(rot_b, strength)
+    scale = scale_a.lerp(scale_b, strength)
+    return (
+        mathutils.Matrix.Translation(loc)
+        @ rot.to_matrix().to_4x4()
+        @ mathutils.Matrix.Diagonal(scale).to_4x4()
+    )
+
+def _apply_pose_match(context, pose_cache, strength):
+    if not pose_cache:
+        return
+    obj = context.active_object
+    if not obj:
+        return
+    strength = max(0.0, min(1.0, strength))
+    if strength <= 0.0:
+        return
+
+    current_frame = context.scene.frame_current
+    for frame in sorted(pose_cache.keys()):
+        context.scene.frame_set(frame)
+        context.view_layer.update()
+        for bone_name, target_mat in pose_cache[frame].items():
+            pbn = obj.pose.bones.get(bone_name)
+            if not pbn:
+                continue
+            if strength >= 0.999:
+                pbn.matrix = target_mat
+            else:
+                pbn.matrix = _blend_matrix(pbn.matrix.copy(), target_mat, strength)
+            pbn.keyframe_insert(data_path='location', frame=frame)
+            pbn.keyframe_insert(data_path='rotation_euler', frame=frame)
+            pbn.keyframe_insert(data_path='rotation_quaternion', frame=frame)
+            pbn.keyframe_insert(data_path='scale', frame=frame)
+
+    context.scene.frame_set(current_frame)
+    context.view_layer.update()
 
 class SpringMagicPhaserCalculate(bpy.types.Operator):
     r"""Generate phase animation"""
@@ -115,6 +281,10 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         
         selected = _get_effective_selection(context, sjps.use_chain)
         obj_trees = core.get_tree_list(context, selected)
+        pose_match_cache = None
+        if sjps.use_pose_match and obj_trees:
+            pose_bones = _get_unique_bones_from_trees(obj_trees)
+            pose_match_cache = _collect_pose_match_data(context, pose_bones, core.sf, core.ef)
         core.delete_anim_keys(obj_trees, context)
         
         for k in obj_trees:
@@ -124,6 +294,8 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
 
         obj_trees = core.set_pre_data(obj_trees, context)
         core.execute_simulation(obj_trees, context)
+        if sjps.use_pose_match and pose_match_cache:
+            _apply_pose_match(context, pose_match_cache, sjps.pose_match_strength)
         if sjps.use_loop:
             core.match_end_to_start(obj_trees, context)
 
@@ -215,7 +387,9 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "use_collision_collection": sjps.use_collision_collection,
             "collision_collection": sjps.collision_collection.name if sjps.collision_collection else "",
             "use_loop": sjps.use_loop,
-            "use_chain": sjps.use_chain
+            "use_chain": sjps.use_chain,
+            "use_pose_match": sjps.use_pose_match,
+            "pose_match_strength": sjps.pose_match_strength
         }
         
         if preset_manager.save_preset(name, data):
@@ -271,6 +445,8 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.collision_collection = bpy.data.collections.get(collection_name) if collection_name else None
             sjps.use_loop = data.get("use_loop", False)
             sjps.use_chain = data.get("use_chain", False)
+            sjps.use_pose_match = data.get("use_pose_match", False)
+            sjps.pose_match_strength = data.get("pose_match_strength", sjps.pose_match_strength)
             
             self.report({'INFO'}, f"Loaded preset: {name}")
         else:
@@ -312,6 +488,8 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.collision_collection = None
         sjps.use_loop = False
         sjps.use_chain = False
+        sjps.use_pose_match = False
+        sjps.pose_match_strength = 1.0
         sjps.threshold = 0.001
         
         self.report({'INFO'}, "Settings reset to default.")

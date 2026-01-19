@@ -1,7 +1,7 @@
 # TODO
 - [x] Collision plane support
 - [x] Wind object with max/min/frequency controls
-- [ ] Pose match equivalent (Blender)
+- [x] Pose match equivalent (Blender)
 - [ ] Controller bind/bake utilities
 - [ ] UI localization + icon assets
 - [x] Update check / version info panel
