@@ -225,6 +225,54 @@ def _apply_pose_match(context, pose_cache, strength):
     context.scene.frame_set(current_frame)
     context.view_layer.update()
 
+_CTRL_BIND_CONSTRAINT = "SM_CTRL_BIND"
+
+def _get_controller_prefix(sjps):
+    prefix = sjps.controller_prefix.strip()
+    return prefix if prefix else "SM_CTRL_"
+
+def _get_pose_bone_depth(pbn):
+    depth = 0
+    parent = pbn.parent
+    while parent:
+        depth += 1
+        parent = parent.parent
+    return depth
+
+def _find_bind_constraint(pbn):
+    for con in pbn.constraints:
+        if con.type == 'COPY_TRANSFORMS' and con.name == _CTRL_BIND_CONSTRAINT:
+            return con
+    return None
+
+def _resolve_controller_pair(obj, pbn, prefix):
+    if "sm_controller_for" in pbn:
+        target = obj.pose.bones.get(pbn["sm_controller_for"])
+        if target:
+            return target, pbn
+        return None
+    if "sm_controller" in pbn:
+        ctrl = obj.pose.bones.get(pbn["sm_controller"])
+        if ctrl:
+            return pbn, ctrl
+        return None
+    con = _find_bind_constraint(pbn)
+    if con and con.subtarget:
+        ctrl = obj.pose.bones.get(con.subtarget)
+        if ctrl:
+            return pbn, ctrl
+    if prefix and pbn.name.startswith(prefix):
+        target = obj.pose.bones.get(pbn.name[len(prefix):])
+        if target:
+            return target, pbn
+    return None
+
+def _insert_pose_keys(pbn, frame):
+    pbn.keyframe_insert(data_path='location', frame=frame)
+    pbn.keyframe_insert(data_path='rotation_euler', frame=frame)
+    pbn.keyframe_insert(data_path='rotation_quaternion', frame=frame)
+    pbn.keyframe_insert(data_path='scale', frame=frame)
+
 class SpringMagicPhaserCalculate(bpy.types.Operator):
     r"""Generate phase animation"""
     bl_idname = "sj_phaser.calculate"
@@ -339,6 +387,155 @@ class SpringMagicPhaserDelAnim(bpy.types.Operator):
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         return {'FINISHED'}
 
+class SpringMagicControllerBind(bpy.types.Operator):
+    r"""Create controller bones and bind them to selected bones"""
+    bl_idname = "sj_phaser.bind_controllers"
+    bl_label = "Bind Controllers"
+    bl_description = "Create controller bones and bind them to selected bones"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'ARMATURE'
+
+    def execute(self, context):
+        obj = context.active_object
+        sjps = context.scene.sj_phaser_props
+        prefix = _get_controller_prefix(sjps)
+
+        selected = _get_effective_selection(context, sjps.use_chain)
+        bones = []
+        seen = set()
+        for pbn in selected:
+            if pbn.name in seen:
+                continue
+            if pbn.name.startswith(prefix):
+                continue
+            seen.add(pbn.name)
+            bones.append(pbn)
+        if not bones:
+            self.report({'ERROR'}, "Select pose bones to bind controllers.")
+            return {'CANCELLED'}
+
+        bones_sorted = sorted(bones, key=_get_pose_bone_depth)
+        prev_mode = obj.mode
+        created = 0
+        try:
+            if prev_mode != 'EDIT':
+                bpy.ops.object.mode_set(mode='EDIT')
+            edit_bones = obj.data.edit_bones
+            for pbn in bones_sorted:
+                src = edit_bones.get(pbn.name)
+                if not src:
+                    continue
+                ctrl_name = prefix + pbn.name
+                ctrl = edit_bones.get(ctrl_name)
+                if not ctrl:
+                    ctrl = edit_bones.new(ctrl_name)
+                    ctrl.head = src.head.copy()
+                    ctrl.tail = src.tail.copy()
+                    ctrl.roll = src.roll
+                    ctrl.use_deform = False
+                    created += 1
+
+                parent_ctrl = None
+                if src.parent:
+                    parent_ctrl = edit_bones.get(prefix + src.parent.name)
+                if parent_ctrl:
+                    ctrl.parent = parent_ctrl
+                    ctrl.use_connect = src.use_connect
+                else:
+                    ctrl.parent = src.parent
+                    ctrl.use_connect = False
+        finally:
+            if prev_mode != obj.mode:
+                bpy.ops.object.mode_set(mode=prev_mode)
+
+        bound = 0
+        for pbn in bones:
+            ctrl_name = prefix + pbn.name
+            ctrl_pbn = obj.pose.bones.get(ctrl_name)
+            if not ctrl_pbn:
+                continue
+            con = _find_bind_constraint(pbn)
+            if not con:
+                con = pbn.constraints.new('COPY_TRANSFORMS')
+                con.name = _CTRL_BIND_CONSTRAINT
+            con.target = obj
+            con.subtarget = ctrl_name
+            con.owner_space = 'POSE'
+            con.target_space = 'POSE'
+            pbn["sm_controller"] = ctrl_name
+            ctrl_pbn["sm_controller_for"] = pbn.name
+            bound += 1
+
+        self.report({'INFO'}, f"Bound {bound} controller(s) (created {created}).")
+        return {'FINISHED'}
+
+class SpringMagicControllerBake(bpy.types.Operator):
+    r"""Bake controller motion onto bound bones"""
+    bl_idname = "sj_phaser.bake_controllers"
+    bl_label = "Bake Controllers"
+    bl_description = "Bake controller motion onto bound bones"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'ARMATURE'
+
+    def execute(self, context):
+        obj = context.active_object
+        sjps = context.scene.sj_phaser_props
+        prefix = _get_controller_prefix(sjps)
+
+        selected = _get_effective_selection(context, sjps.use_chain)
+        candidates = selected if selected else list(obj.pose.bones)
+        pairs = []
+        seen = set()
+        for pbn in candidates:
+            pair = _resolve_controller_pair(obj, pbn, prefix)
+            if not pair:
+                continue
+            target, ctrl = pair
+            if not target or not ctrl:
+                continue
+            if target.name in seen:
+                continue
+            seen.add(target.name)
+            pairs.append((target, ctrl))
+
+        if not pairs:
+            self.report({'ERROR'}, "No bound controllers found to bake.")
+            return {'CANCELLED'}
+
+        scene = context.scene
+        sf = scene.frame_start
+        ef = scene.frame_end
+        current_frame = scene.frame_current
+
+        for frame in range(sf, ef + 1):
+            scene.frame_set(frame)
+            context.view_layer.update()
+            for target, ctrl in pairs:
+                target.matrix = ctrl.matrix.copy()
+                _insert_pose_keys(target, frame)
+
+        scene.frame_set(current_frame)
+        context.view_layer.update()
+
+        if sjps.controller_remove_bind:
+            for target, ctrl in pairs:
+                con = _find_bind_constraint(target)
+                if con:
+                    target.constraints.remove(con)
+                if "sm_controller" in target:
+                    del target["sm_controller"]
+                if ctrl and "sm_controller_for" in ctrl:
+                    del ctrl["sm_controller_for"]
+
+        self.report({'INFO'}, f"Baked {len(pairs)} controller(s).")
+        return {'FINISHED'}
+
 class SpringMagicPhaserSavePreset(bpy.types.Operator):
     r"""Save current settings as a preset"""
     bl_idname = "sj_phaser.save_preset"
@@ -389,7 +586,9 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "use_loop": sjps.use_loop,
             "use_chain": sjps.use_chain,
             "use_pose_match": sjps.use_pose_match,
-            "pose_match_strength": sjps.pose_match_strength
+            "pose_match_strength": sjps.pose_match_strength,
+            "controller_prefix": sjps.controller_prefix,
+            "controller_remove_bind": sjps.controller_remove_bind
         }
         
         if preset_manager.save_preset(name, data):
@@ -447,6 +646,8 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.use_chain = data.get("use_chain", False)
             sjps.use_pose_match = data.get("use_pose_match", False)
             sjps.pose_match_strength = data.get("pose_match_strength", sjps.pose_match_strength)
+            sjps.controller_prefix = data.get("controller_prefix", sjps.controller_prefix)
+            sjps.controller_remove_bind = data.get("controller_remove_bind", sjps.controller_remove_bind)
             
             self.report({'INFO'}, f"Loaded preset: {name}")
         else:
@@ -490,6 +691,8 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.use_chain = False
         sjps.use_pose_match = False
         sjps.pose_match_strength = 1.0
+        sjps.controller_prefix = "SM_CTRL_"
+        sjps.controller_remove_bind = True
         sjps.threshold = 0.001
         
         self.report({'INFO'}, "Settings reset to default.")

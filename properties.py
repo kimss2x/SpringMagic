@@ -167,6 +167,16 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="Blend strength when matching to keyframed poses",
         default=1.0, min=0.0, max=1.0, precision=2
     )
+    controller_prefix: bpy.props.StringProperty(
+        name="Controller Prefix",
+        description="Prefix for generated controller bones",
+        default="SM_CTRL_"
+    )
+    controller_remove_bind: bpy.props.BoolProperty(
+        name="Remove Bind on Bake",
+        description="Remove controller bind constraints after baking",
+        default=True
+    )
 
     # System
     threshold: bpy.props.FloatProperty(

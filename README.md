@@ -11,6 +11,7 @@ wind effects for natural secondary motion.
 - Optional scene force fields (Wind / Force / Vortex)
 - Wind object with min/max/frequency controls
 - Pose match to existing keyframed poses (optional)
+- Controller bind/bake utilities for control bones
 - Bone-based collision using bone radius/length with offsets
 - Plane collision using a designated plane object (infinite plane)
 - Collection collision using rigid body or collision physics shapes
@@ -42,6 +43,11 @@ wind effects for natural secondary motion.
 9. Click Calculate Physics to bake keys.
 10. Use Clear Animation to remove generated keys.
 11. (Optional) Enable Pose Match to keep keyed poses where keys already exist.
+
+## Controller Utilities
+- Bind Controllers creates non-deform controller bones and binds them to selected bones.
+- Run the simulation on the controller bones (prefix) for a clean control rig.
+- Bake Controllers bakes controller motion onto the bound bones and can remove the bind.
 
 ## Presets
 - Presets are stored as JSON in `presets/`.

@@ -91,6 +91,14 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         if sjps.use_pose_match:
             col.prop(sjps, "pose_match_strength", slider=True)
 
+        col = layout.column(align=True)
+        col.label(text="Controllers:")
+        col.prop(sjps, "controller_prefix", text="Prefix")
+        row = col.row(align=True)
+        row.operator("sj_phaser.bind_controllers", text="Bind", icon="CONSTRAINT")
+        row.operator("sj_phaser.bake_controllers", text="Bake", icon="REC")
+        col.prop(sjps, "controller_remove_bind", text="Remove Bind on Bake")
+
         layout.label(text="Actions(Bake):")
         row = layout.row(align=True)
         row.scale_y = 1.5
