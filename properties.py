@@ -146,6 +146,22 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         items=preset_manager.get_enum_items
     )
 
+    # Bake Blending
+    spring_bake_weight: bpy.props.FloatProperty(
+        name="Bake Weight",
+        description="Blend weight between existing animation and spring result (0=keep existing, 1=full spring)",
+        default=1.0, min=0.0, max=1.0, precision=2
+    )
+    spring_bake_mode: bpy.props.EnumProperty(
+        name="Bake Mode",
+        description="How to blend spring result with existing animation",
+        items=[
+            ('OVERRIDE', "Override", "Lerp/Slerp between existing pose and spring pose"),
+            ('ADDITIVE', "Additive", "Add spring delta on top of existing animation"),
+        ],
+        default='OVERRIDE'
+    )
+
     # Options
     use_loop: bpy.props.BoolProperty(
         name="Loop",

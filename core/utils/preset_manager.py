@@ -15,21 +15,37 @@ def get_preset_path(name):
     return os.path.join(PRESET_DIR, name)
 
 def save_preset(name, data):
-    r"""Save dictionary data to a json preset file"""
+    r"""Save dictionary data to a json preset file.
+
+    Returns:
+        True on success, False on failure (disk full, permission denied, etc.)
+    """
     path = get_preset_path(name)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4)
-    return True
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        return True
+    except (IOError, OSError, PermissionError) as e:
+        print(f"[SpringMagic] Failed to save preset '{name}': {e}")
+        return False
 
 def load_preset(name):
-    r"""Load dictionary data from a json preset file"""
+    r"""Load dictionary data from a json preset file.
+
+    Returns:
+        Dictionary on success, None on failure (file not found, corrupted JSON, etc.)
+    """
     path = get_preset_path(name)
     if not os.path.exists(path):
         return None
-    
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    return data
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+    except (IOError, OSError, json.JSONDecodeError) as e:
+        print(f"[SpringMagic] Failed to load preset '{name}': {e}")
+        return None
 
 def get_preset_list():
     ensure_preset_dir()

@@ -320,19 +320,41 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         core.use_collision_plane = sjps.use_collision_plane
         core.collision_plane_object = sjps.collision_plane_object
 
+        # Bake Blending settings
+        core.bake_weight = sjps.spring_bake_weight
+        core.bake_mode = sjps.spring_bake_mode
+
         if core.sf >= core.ef:
             self.report({'ERROR'}, "Start Frame must be smaller than End Frame.")
-            return {'FINISHED'}
+            return {'CANCELLED'}
+
+        # Limit frame range to prevent performance issues
+        max_frames = 10000
+        frame_count = core.ef - core.sf
+        if frame_count > max_frames:
+            self.report({'ERROR'}, f"Frame range too large ({frame_count} frames). Maximum is {max_frames}.")
+            return {'CANCELLED'}
 
         context.scene.frame_set(core.sf)
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-        
+
         selected = _get_effective_selection(context, sjps.use_chain)
+        if not selected:
+            self.report({'ERROR'}, "No bones selected. Select pose bones to calculate physics.")
+            return {'CANCELLED'}
+
         obj_trees = core.get_tree_list(context, selected)
+        if not obj_trees:
+            self.report({'ERROR'}, "No valid bone chains found. Select bones with parents.")
+            return {'CANCELLED'}
+
         pose_match_cache = None
         if sjps.use_pose_match and obj_trees:
             pose_bones = _get_unique_bones_from_trees(obj_trees)
             pose_match_cache = _collect_pose_match_data(context, pose_bones, core.sf, core.ef)
+
+        # Cache existing animation for blending (must be before delete_anim_keys)
+        core.cache_existing_animation(obj_trees, context)
         core.delete_anim_keys(obj_trees, context)
         
         for k in obj_trees:
@@ -367,18 +389,33 @@ class SpringMagicPhaserDelAnim(bpy.types.Operator):
 
         core.sf = context.scene.frame_start
         core.ef = context.scene.frame_end
-        
+
         if core.sf >= core.ef:
             self.report({'ERROR'}, "Start Frame must be smaller than End Frame.")
-            return {'FINISHED'}
+            return {'CANCELLED'}
+
+        # Limit frame range to prevent performance issues
+        max_frames = 10000
+        frame_count = core.ef - core.sf
+        if frame_count > max_frames:
+            self.report({'ERROR'}, f"Frame range too large ({frame_count} frames). Maximum is {max_frames}.")
+            return {'CANCELLED'}
 
         context.scene.frame_set(core.sf)
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-        
+
         selected = _get_effective_selection(context, sjps.use_chain)
+        if not selected:
+            self.report({'ERROR'}, "No bones selected.")
+            return {'CANCELLED'}
+
         obj_trees = core.get_tree_list(context, selected)
-        core.delete_anim_keys(obj_trees, context)
-        
+        if not obj_trees:
+            self.report({'ERROR'}, "No valid bone chains found.")
+            return {'CANCELLED'}
+
+        core.delete_anim_keys(obj_trees, context, force_delete=True)
+
         for k in obj_trees:
             for t in obj_trees[k]:
                 for pbn in obj_trees[k][t]["obj_list"]:
@@ -588,7 +625,9 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "use_pose_match": sjps.use_pose_match,
             "pose_match_strength": sjps.pose_match_strength,
             "controller_prefix": sjps.controller_prefix,
-            "controller_remove_bind": sjps.controller_remove_bind
+            "controller_remove_bind": sjps.controller_remove_bind,
+            "spring_bake_weight": sjps.spring_bake_weight,
+            "spring_bake_mode": sjps.spring_bake_mode
         }
         
         if preset_manager.save_preset(name, data):
@@ -648,7 +687,9 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.pose_match_strength = data.get("pose_match_strength", sjps.pose_match_strength)
             sjps.controller_prefix = data.get("controller_prefix", sjps.controller_prefix)
             sjps.controller_remove_bind = data.get("controller_remove_bind", sjps.controller_remove_bind)
-            
+            sjps.spring_bake_weight = data.get("spring_bake_weight", sjps.spring_bake_weight)
+            sjps.spring_bake_mode = data.get("spring_bake_mode", sjps.spring_bake_mode)
+
             self.report({'INFO'}, f"Loaded preset: {name}")
         else:
             self.report({'ERROR'}, f"Could not load preset: {name}")
@@ -694,7 +735,9 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.controller_prefix = "SM_CTRL_"
         sjps.controller_remove_bind = True
         sjps.threshold = 0.001
-        
+        sjps.spring_bake_weight = 1.0
+        sjps.spring_bake_mode = 'OVERRIDE'
+
         self.report({'INFO'}, "Settings reset to default.")
         return {'FINISHED'}
 

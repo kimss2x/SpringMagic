@@ -99,6 +99,13 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row.operator("sj_phaser.bake_controllers", text="Bake", icon="REC")
         col.prop(sjps, "controller_remove_bind", text="Remove Bind on Bake")
 
+        # Bake Blending
+        col = layout.column(align=True)
+        col.label(text="Bake Blending:")
+        row = col.row(align=True)
+        row.prop(sjps, "spring_bake_mode", expand=True)
+        col.prop(sjps, "spring_bake_weight", slider=True)
+
         layout.label(text="Actions(Bake):")
         row = layout.row(align=True)
         row.scale_y = 1.5

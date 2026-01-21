@@ -50,6 +50,12 @@ class PhaserCore(object):
         self._collision_plane = None
         self._collection_colliders = []
 
+        # Bake Blending
+        self.bake_weight = 1.0
+        self.bake_mode = 'OVERRIDE'
+        self._existing_anim_cache = {}  # {bone_name: {frame: {loc, rot_quat, rot_euler, scale}}}
+        self._base_pose_cache = {}  # For additive mode: rest/base pose at start frame
+
     def get_tree_list(self, context, selected_bones=None):
         r"""Get list of bone chains (trees) from selection"""
         tree_roots = []
@@ -120,6 +126,116 @@ class PhaserCore(object):
                 for pbn in obj_trees[k][t]["obj_list"]:
                     bones[pbn.name] = pbn
         return list(bones.values())
+
+    def cache_existing_animation(self, obj_trees, context):
+        r"""Cache existing animation values before bake for blending."""
+        self._existing_anim_cache = {}
+        self._base_pose_cache = {}
+
+        if self.bake_weight >= 0.999:
+            return  # No blending needed, skip caching
+
+        bones = self._get_unique_bones(obj_trees)
+        if not bones:
+            return
+
+        current_frame = context.scene.frame_current
+
+        # Cache base pose at start frame (for additive mode)
+        context.scene.frame_set(self.sf)
+        context.view_layer.update()
+        for bone in bones:
+            self._base_pose_cache[bone.name] = {
+                'loc': bone.location.copy(),
+                'rot_quat': bone.rotation_quaternion.copy(),
+                'rot_euler': bone.rotation_euler.copy(),
+                'scale': bone.scale.copy(),
+            }
+
+        # Cache existing animation at each frame
+        for frame in range(self.sf, self.ef + 1):
+            context.scene.frame_set(frame)
+            context.view_layer.update()
+
+            for bone in bones:
+                if bone.name not in self._existing_anim_cache:
+                    self._existing_anim_cache[bone.name] = {}
+
+                self._existing_anim_cache[bone.name][frame] = {
+                    'loc': bone.location.copy(),
+                    'rot_quat': bone.rotation_quaternion.copy(),
+                    'rot_euler': bone.rotation_euler.copy(),
+                    'scale': bone.scale.copy(),
+                }
+
+        context.scene.frame_set(current_frame)
+        context.view_layer.update()
+
+    def _blend_override(self, existing, spring, weight):
+        r"""Override blend: lerp/slerp between existing and spring pose."""
+        loc = existing['loc'].lerp(spring['loc'], weight)
+        rot_quat = existing['rot_quat'].slerp(spring['rot_quat'], weight)
+
+        # For Euler, convert to quaternion, slerp, then convert back
+        existing_euler_quat = existing['rot_euler'].to_quaternion()
+        spring_euler_quat = spring['rot_euler'].to_quaternion()
+        blended_euler_quat = existing_euler_quat.slerp(spring_euler_quat, weight)
+        rot_euler = blended_euler_quat.to_euler(existing['rot_euler'].order)
+
+        scale = existing['scale'].lerp(spring['scale'], weight)
+
+        return {
+            'loc': loc,
+            'rot_quat': rot_quat,
+            'rot_euler': rot_euler,
+            'scale': scale,
+        }
+
+    def _blend_additive(self, existing, spring, base, weight):
+        r"""Additive blend: apply weighted delta from base to existing pose."""
+        # Location: delta = spring_loc - base_loc, new = existing + delta * weight
+        delta_loc = spring['loc'] - base['loc']
+        loc = existing['loc'] + delta_loc * weight
+
+        # Rotation (quaternion): delta = spring * inverse(base), apply weighted
+        base_quat_inv = base['rot_quat'].inverted()
+        delta_quat = spring['rot_quat'] @ base_quat_inv
+        # Slerp from identity to delta by weight, then apply to existing
+        identity = mathutils.Quaternion((1.0, 0.0, 0.0, 0.0))
+        weighted_delta = identity.slerp(delta_quat, weight)
+        rot_quat = weighted_delta @ existing['rot_quat']
+        rot_quat.normalize()
+
+        # Euler: same approach via quaternion
+        base_euler_quat = base['rot_euler'].to_quaternion()
+        spring_euler_quat = spring['rot_euler'].to_quaternion()
+        existing_euler_quat = existing['rot_euler'].to_quaternion()
+        delta_euler_quat = spring_euler_quat @ base_euler_quat.inverted()
+        weighted_euler_delta = identity.slerp(delta_euler_quat, weight)
+        blended_euler_quat = weighted_euler_delta @ existing_euler_quat
+        blended_euler_quat.normalize()
+        rot_euler = blended_euler_quat.to_euler(existing['rot_euler'].order)
+
+        # Scale: delta = spring_scale / base_scale, lerp(1, delta, weight), multiply
+        delta_scale = mathutils.Vector((
+            spring['scale'].x / base['scale'].x if base['scale'].x != 0 else 1.0,
+            spring['scale'].y / base['scale'].y if base['scale'].y != 0 else 1.0,
+            spring['scale'].z / base['scale'].z if base['scale'].z != 0 else 1.0,
+        ))
+        one_vec = mathutils.Vector((1.0, 1.0, 1.0))
+        weighted_scale_factor = one_vec.lerp(delta_scale, weight)
+        scale = mathutils.Vector((
+            existing['scale'].x * weighted_scale_factor.x,
+            existing['scale'].y * weighted_scale_factor.y,
+            existing['scale'].z * weighted_scale_factor.z,
+        ))
+
+        return {
+            'loc': loc,
+            'rot_quat': rot_quat,
+            'rot_euler': rot_euler,
+            'scale': scale,
+        }
 
     def _create_data_structure(self, tree):
         return {
@@ -643,12 +759,49 @@ class PhaserCore(object):
 
     def set_animkey(self, obj, context):
         f = context.scene.frame_current
+        bone_name = obj.name
+
+        # Apply blending if weight < 1.0 and we have cached data
+        if self.bake_weight < 0.999 and bone_name in self._existing_anim_cache:
+            existing_data = self._existing_anim_cache.get(bone_name, {}).get(f)
+            if existing_data:
+                # Get current spring result
+                spring_data = {
+                    'loc': obj.location.copy(),
+                    'rot_quat': obj.rotation_quaternion.copy(),
+                    'rot_euler': obj.rotation_euler.copy(),
+                    'scale': obj.scale.copy(),
+                }
+
+                # Blend based on mode
+                if self.bake_mode == 'ADDITIVE':
+                    base_data = self._base_pose_cache.get(bone_name)
+                    if base_data:
+                        blended = self._blend_additive(existing_data, spring_data, base_data, self.bake_weight)
+                    else:
+                        blended = self._blend_override(existing_data, spring_data, self.bake_weight)
+                else:  # OVERRIDE
+                    blended = self._blend_override(existing_data, spring_data, self.bake_weight)
+
+                # Apply blended values
+                obj.location = blended['loc']
+                obj.rotation_quaternion = blended['rot_quat']
+                obj.rotation_euler = blended['rot_euler']
+                obj.scale = blended['scale']
+
         obj.keyframe_insert(data_path='location', frame=f)
         obj.keyframe_insert(data_path='rotation_euler', frame=f)
         obj.keyframe_insert(data_path='rotation_quaternion', frame=f)
         obj.keyframe_insert(data_path='scale', frame=f)
 
-    def delete_anim_keys(self, obj_trees, context):
+    def delete_anim_keys(self, obj_trees, context, force_delete=False):
+        r"""Delete animation keys. When weight < 1.0, keys are preserved for blending."""
+        # When blending is active (weight < 1.0), we cache first, then delete
+        # The blended result will be written back in set_animkey()
+        if not force_delete and self.bake_weight < 0.999:
+            # Keys will be overwritten with blended values, no need to delete
+            return
+
         dct_k = sorted(obj_trees.keys())
         for k in dct_k:
             for t in obj_trees[k]:
@@ -659,7 +812,8 @@ class PhaserCore(object):
                             pbn.keyframe_delete(data_path="rotation_euler", frame=f)
                             pbn.keyframe_delete(data_path="rotation_quaternion", frame=f)
                             pbn.keyframe_delete(data_path="scale", frame=f)
-                        except:
+                        except RuntimeError:
+                            # Keyframe doesn't exist at this frame, skip
                             pass
         context.view_layer.update()
 
