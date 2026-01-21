@@ -5,6 +5,13 @@ import math
 import numpy as np
 from .utils import math_utils
 
+# Physics simulation constants
+FORCE_FIELD_SCALE = 20.0      # Scale factor for Blender force field strength
+SCENE_FORCE_SCALE = 0.01      # Scale factor for scene forces (tames raw physics values)
+EPSILON = 0.000001            # Small value for floating point comparisons
+AXIS_THRESHOLD = 0.0001       # Threshold for axis vector validity
+
+
 class PhaserCore(object):
     r"""
     Core calculation module for SpringMagic Phaser.
@@ -141,6 +148,10 @@ class PhaserCore(object):
 
         current_frame = context.scene.frame_current
 
+        # Pre-initialize cache dictionaries for all bones (avoid repeated dict lookups)
+        for bone in bones:
+            self._existing_anim_cache[bone.name] = {}
+
         # Cache base pose at start frame (for additive mode)
         context.scene.frame_set(self.sf)
         context.view_layer.update()
@@ -153,14 +164,13 @@ class PhaserCore(object):
             }
 
         # Cache existing animation at each frame
+        # Note: frame_set + view_layer.update per frame is required for accurate evaluation
         for frame in range(self.sf, self.ef + 1):
             context.scene.frame_set(frame)
             context.view_layer.update()
 
             for bone in bones:
-                if bone.name not in self._existing_anim_cache:
-                    self._existing_anim_cache[bone.name] = {}
-
+                # Direct assignment (dict already exists)
                 self._existing_anim_cache[bone.name][frame] = {
                     'loc': bone.location.copy(),
                     'rot_quat': bone.rotation_quaternion.copy(),
@@ -571,7 +581,7 @@ class PhaserCore(object):
                 
                 # Force is Repulsive (Positive) or Attractive (Negative)
                 # Field strength in Blender: Positive blows away
-                force_vec = direction * (strength * falloff * 20.0) # Scale factor to match Blender feeling roughly
+                force_vec = direction * (strength * falloff * FORCE_FIELD_SCALE)
                 total_force += force_vec
                 
         return total_force
@@ -633,9 +643,10 @@ class PhaserCore(object):
             obj = obj_data["obj_list"][i]
             
             tag_mt = cur_p_mt @ obj_data["obj_length"][i]
-            
-            pre_mt = copy.copy(obj_data["pre_mt"][i])
-            new_mt = copy.copy(obj_data["pre_mt"][i])
+
+            # Use pre_mt directly for reading (no need to copy since we only read from it)
+            pre_mt = obj_data["pre_mt"][i]
+            new_mt = copy.copy(pre_mt)
             tag_pos = tag_mt.translation
 
             # Align Y
@@ -646,7 +657,7 @@ class PhaserCore(object):
             y_diff = math.acos(dot_prod)
             
             axis_vec = pre_y_vec.cross(tag_y_vec)
-            if axis_vec.length > 0.0001:
+            if axis_vec.length > AXIS_THRESHOLD:
                 axis_vec.normalize()
                 rot_fix = mathutils.Matrix.Rotation(y_diff, 4, axis_vec)
                 new_mt = math_utils.rotate_matrix_by_component(new_mt, rot_fix)
@@ -677,12 +688,18 @@ class PhaserCore(object):
 
             # Phase 3: Elasticity
             c_pos = obj_data["pre_mt"][i+1].translation # Current tip pos (from previous frame calculation)
-            y_vec = (c_pos - tag_pos).normalized()
+            y_diff = c_pos - tag_pos
+            if y_diff.length > 0.000001:
+                y_vec = y_diff.normalized()
+            else:
+                y_vec = new_mt.to_3x3().col[1].normalized()  # Fallback to current Y axis
             new_y_vec = new_mt.to_3x3().col[1].normalized()
             rcs_vec = obj_data["old_vec"][i] * self.recursion
-            
+
             base_phase = (new_y_vec - (y_vec * strgh))
-            phase_vec = (base_phase / self.delay) + rcs_vec
+            # Protect against division by zero (delay min is 1.0, but be safe)
+            safe_delay = max(self.delay, 0.001)
+            phase_vec = (base_phase / safe_delay) + rcs_vec
             if inrt > 0.0:
                 prev_tip = obj_data["old_tip"][i]
                 phase_vec += (c_pos - prev_tip) * inrt
@@ -697,12 +714,8 @@ class PhaserCore(object):
             
             # Apply Scene Fields
             if self.use_scene_fields:
-                # Calculate effect at the bone root (tag_pos)
                 scene_force = self.calculate_scene_forces(tag_pos)
-                # Apply to phase
-                # Scene forces can be strong, we might want to scale them or let user adjust strength
-                # Using 0.01 factor to tame raw values typically returned by physics engines
-                phase_vec += scene_force * 0.01 * (1.0 / max(self.delay, 1.0))
+                phase_vec += scene_force * SCENE_FORCE_SCALE * (1.0 / max(self.delay, 1.0))
 
             phase_vec = phase_vec * dt_scale
             if tens > 0.0:
@@ -817,19 +830,31 @@ class PhaserCore(object):
                             pass
         context.view_layer.update()
 
-    def execute_simulation(self, obj_trees, context):
+    def execute_simulation(self, obj_trees, context, progress_callback=None):
+        r"""Execute spring simulation.
+
+        Args:
+            obj_trees: Bone chain data structures
+            context: Blender context
+            progress_callback: Optional callback(current, total) for progress updates
+        """
         dct_k = sorted(obj_trees.keys())
         sub_steps = max(1, int(self.sub_steps))
         dt_scale = 1.0 / sub_steps
 
-        for f in range(self.sf + 1, self.ef + 1):
+        total_frames = self.ef - self.sf
+        for idx, f in enumerate(range(self.sf + 1, self.ef + 1)):
             context.scene.frame_set(f)
             for s in range(sub_steps):
                 insert_key = (s == sub_steps - 1)
                 for k in dct_k:
                     for t in obj_trees[k]:
                         self.calculate_step(obj_trees[k][t], context, dt_scale, insert_key)
-        
+
+            # Report progress
+            if progress_callback and total_frames > 0:
+                progress_callback(idx + 1, total_frames)
+
         return True
 
     def match_end_to_start(self, obj_trees, context):

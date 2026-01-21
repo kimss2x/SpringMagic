@@ -36,11 +36,12 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
             row = col.row(align=True)
             row.prop(sjps, "twist")
             row.prop(sjps, "tension")
-            
+
             row = col.row(align=True)
             row.prop(sjps, "inertia")
             row.prop(sjps, "extend")
             col.prop(sjps, "sub_steps")
+            col.prop(sjps, "threshold")
 
         # Force Settings
         col = layout.column(align=True)
@@ -76,10 +77,6 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         col.prop(sjps, "use_collision_collection", text="Collision Collection")
         if sjps.use_collision_collection:
             col.prop(sjps, "collision_collection", text="Collection")
-
-        # System
-        col = layout.column(align=False)
-        col.prop(sjps, "threshold")
 
         col = layout.column(align=True)
         col.label(text="Options:")

@@ -150,7 +150,7 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
     spring_bake_weight: bpy.props.FloatProperty(
         name="Bake Weight",
         description="Blend weight between existing animation and spring result (0=keep existing, 1=full spring)",
-        default=1.0, min=0.0, max=1.0, precision=2
+        default=1.0, min=0.0, max=1.0, precision=3
     )
     spring_bake_mode: bpy.props.EnumProperty(
         name="Bake Mode",
@@ -197,7 +197,7 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
     # System
     threshold: bpy.props.FloatProperty(
         name="Threshold",
-        description="Optimization threshold",
+        description="Motion cutoff threshold. Smaller values preserve subtle motion but increase calculation. Default 0.001 works well for most cases",
         default=0.001, min=0.00001, max=0.1, step=0.01, precision=4
     )
     debug: bpy.props.BoolProperty(name="Debug", default=False)

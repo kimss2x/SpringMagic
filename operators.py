@@ -363,7 +363,21 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
                     core.set_animkey(pbn, context)
 
         obj_trees = core.set_pre_data(obj_trees, context)
-        core.execute_simulation(obj_trees, context)
+
+        # Progress callback for visual feedback
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+
+        def progress_callback(current, total):
+            if total > 0:
+                percent = int((current / total) * 100)
+                wm.progress_update(percent)
+
+        try:
+            core.execute_simulation(obj_trees, context, progress_callback)
+        finally:
+            wm.progress_end()
+
         if sjps.use_pose_match and pose_match_cache:
             _apply_pose_match(context, pose_match_cache, sjps.pose_match_strength)
         if sjps.use_loop:
@@ -668,7 +682,16 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.use_scene_fields = data.get("use_scene_fields", False)
             sjps.use_wind_object = data.get("use_wind_object", False)
             wind_obj_name = data.get("wind_object", "")
-            sjps.wind_object = bpy.data.objects.get(wind_obj_name) if wind_obj_name else None
+            if wind_obj_name:
+                wind_obj = bpy.data.objects.get(wind_obj_name)
+                if wind_obj:
+                    sjps.wind_object = wind_obj
+                else:
+                    sjps.wind_object = None
+                    sjps.use_wind_object = False
+                    self.report({'WARNING'}, f"Wind object '{wind_obj_name}' not found, disabled.")
+            else:
+                sjps.wind_object = None
             sjps.wind_min_strength = data.get("wind_min_strength", sjps.wind_min_strength)
             sjps.wind_max_strength = data.get("wind_max_strength", sjps.wind_max_strength)
             sjps.wind_frequency = data.get("wind_frequency", sjps.wind_frequency)
@@ -677,10 +700,28 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
             sjps.collision_length_offset = data.get("collision_length_offset", sjps.collision_length_offset)
             sjps.use_collision_plane = data.get("use_collision_plane", False)
             plane_name = data.get("collision_plane_object", "")
-            sjps.collision_plane_object = bpy.data.objects.get(plane_name) if plane_name else None
+            if plane_name:
+                plane_obj = bpy.data.objects.get(plane_name)
+                if plane_obj:
+                    sjps.collision_plane_object = plane_obj
+                else:
+                    sjps.collision_plane_object = None
+                    sjps.use_collision_plane = False
+                    self.report({'WARNING'}, f"Collision plane '{plane_name}' not found, disabled.")
+            else:
+                sjps.collision_plane_object = None
             sjps.use_collision_collection = data.get("use_collision_collection", False)
             collection_name = data.get("collision_collection", "")
-            sjps.collision_collection = bpy.data.collections.get(collection_name) if collection_name else None
+            if collection_name:
+                coll = bpy.data.collections.get(collection_name)
+                if coll:
+                    sjps.collision_collection = coll
+                else:
+                    sjps.collision_collection = None
+                    sjps.use_collision_collection = False
+                    self.report({'WARNING'}, f"Collision collection '{collection_name}' not found, disabled.")
+            else:
+                sjps.collision_collection = None
             sjps.use_loop = data.get("use_loop", False)
             sjps.use_chain = data.get("use_chain", False)
             sjps.use_pose_match = data.get("use_pose_match", False)
