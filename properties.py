@@ -138,6 +138,11 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         description="Collection of collision objects",
         type=bpy.types.Collection
     )
+    collision_auto_register: bpy.props.BoolProperty(
+        name="Auto-register Collision",
+        description="Automatically add Collision modifier to mesh objects without physics setup",
+        default=False
+    )
 
     # Presets
     preset_enum: bpy.props.EnumProperty(

@@ -53,6 +53,7 @@ class PhaserCore(object):
         self.collision_plane_object = None
         self.use_collision_collection = False
         self.collision_collection = None
+        self.collision_auto_register = False
         self._collision_bones = []
         self._collision_plane = None
         self._collection_colliders = []
@@ -270,10 +271,16 @@ class PhaserCore(object):
         return tip_world
 
     def set_pre_data(self, obj_trees, context):
-        r"""Initialize matrices and vectors"""
+        r"""Initialize matrices and vectors.
+
+        Returns:
+            tuple: (obj_trees, skipped_colliders list)
+        """
         dct_k = sorted(obj_trees.keys())
         amt = context.active_object
         amt_world = amt.matrix_world
+        skipped_colliders = []
+        auto_registered = []
 
         # Cache fields once if enabled
         if self.use_scene_fields:
@@ -283,7 +290,7 @@ class PhaserCore(object):
         if self.use_collision_plane:
             self._cache_collision_plane()
         if self.use_collision_collection:
-            self._cache_collection_colliders()
+            skipped_colliders, auto_registered = self._cache_collection_colliders(context)
 
         for k in dct_k:
             for t in obj_trees[k]:
@@ -301,12 +308,12 @@ class PhaserCore(object):
                     if i == len(obj_list) - 1:
                         end_mt = self.get_end_pos_from_bonelength(pbn, amt_world)
                         data["pre_mt"].append(end_mt)
-                        
+
                         wmt = amt_world @ pbn.matrix
                         len_mt = wmt.inverted() @ end_mt
                         data["obj_length"].append(len_mt)
 
-        return obj_trees
+        return obj_trees, skipped_colliders, auto_registered
 
     def _cache_scene_fields(self, context):
         r"""Find relevant force fields in the scene"""
@@ -336,16 +343,34 @@ class PhaserCore(object):
             "point": point
         }
 
-    def _cache_collection_colliders(self):
-        r"""Collect collection objects with rigid body collision shapes"""
+    def _cache_collection_colliders(self, context=None):
+        r"""Collect collection objects with rigid body collision shapes.
+
+        Args:
+            context: Blender context (required for auto-register)
+
+        Returns:
+            tuple: (skipped_colliders, auto_registered_names)
+        """
+        import bpy
+
         self._collection_colliders = []
+        self._skipped_colliders = []  # Track objects without physics
+        auto_registered = []  # Track auto-registered objects
+
         if not self.collision_collection:
-            return
+            return [], []
+
         for obj in self.collision_collection.all_objects:
+            # Skip non-mesh objects (Empty, Armature, Camera, etc.)
             if obj.type != 'MESH':
+                self._skipped_colliders.append((obj.name, obj.type, "Not a mesh"))
                 continue
+
             shape = None
             margin = 0.0
+            skip_reason = None
+
             if obj.rigid_body:
                 shape = obj.rigid_body.collision_shape
                 margin = max(margin, obj.rigid_body.collision_margin)
@@ -359,15 +384,38 @@ class PhaserCore(object):
                     shape = 'BOX'
                     if hasattr(obj, "collision") and obj.collision:
                         margin = max(margin, obj.collision.thickness_outer)
+                elif self.collision_auto_register and context:
+                    # Auto-register: Add Collision modifier (lightweight, no Rigid Body World needed)
+                    try:
+                        # Check if COLLISION modifier already exists
+                        has_collision_mod = any(mod.type == 'COLLISION' for mod in obj.modifiers)
+                        if not has_collision_mod:
+                            obj.modifiers.new(name="Collision", type='COLLISION')
+                            auto_registered.append(obj.name)
+
+                        # Use BOX shape for collision detection
+                        shape = 'BOX'
+                        margin = obj.collision.thickness_outer if obj.collision else 0.0
+
+                    except Exception as e:
+                        skip_reason = f"Auto-register failed: {e}"
+                else:
+                    skip_reason = "No rigid body or collision"
+
             if not shape:
+                self._skipped_colliders.append((obj.name, obj.type, skip_reason or "No collision shape"))
                 continue
+
             if shape in {'CONVEX_HULL', 'MESH'}:
                 shape = 'BOX'
+
             self._collection_colliders.append({
                 "obj": obj,
                 "shape": shape,
                 "margin": margin
             })
+
+        return self._skipped_colliders, auto_registered
 
     def _capsule_from_bone(self, pbn, amt_world):
         head = amt_world @ pbn.head

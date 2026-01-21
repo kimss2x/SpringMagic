@@ -317,6 +317,7 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         core.collision_length_offset = sjps.collision_length_offset
         core.use_collision_collection = sjps.use_collision_collection
         core.collision_collection = sjps.collision_collection
+        core.collision_auto_register = sjps.collision_auto_register
         core.use_collision_plane = sjps.use_collision_plane
         core.collision_plane_object = sjps.collision_plane_object
 
@@ -362,7 +363,23 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
                 for pbn in obj_trees[k][t]["obj_list"]:
                     core.set_animkey(pbn, context)
 
-        obj_trees = core.set_pre_data(obj_trees, context)
+        obj_trees, skipped_colliders, auto_registered = core.set_pre_data(obj_trees, context)
+
+        # Info about auto-registered collision objects
+        if auto_registered:
+            names = ', '.join(auto_registered[:5])
+            msg = f"Auto-registered {len(auto_registered)} object(s) with Collision modifier: {names}"
+            if len(auto_registered) > 5:
+                msg += f" and {len(auto_registered) - 5} more..."
+            self.report({'INFO'}, msg)
+
+        # Warn about skipped collision objects
+        if skipped_colliders:
+            skipped_names = [f"{name}({obj_type})" for name, obj_type, reason in skipped_colliders[:5]]
+            msg = f"Skipped {len(skipped_colliders)} object(s) without physics: {', '.join(skipped_names)}"
+            if len(skipped_colliders) > 5:
+                msg += f" and {len(skipped_colliders) - 5} more..."
+            self.report({'WARNING'}, msg)
 
         # Progress callback for visual feedback
         wm = context.window_manager
@@ -634,6 +651,7 @@ class SpringMagicPhaserSavePreset(bpy.types.Operator):
             "collision_plane_object": sjps.collision_plane_object.name if sjps.collision_plane_object else "",
             "use_collision_collection": sjps.use_collision_collection,
             "collision_collection": sjps.collision_collection.name if sjps.collision_collection else "",
+            "collision_auto_register": sjps.collision_auto_register,
             "use_loop": sjps.use_loop,
             "use_chain": sjps.use_chain,
             "use_pose_match": sjps.use_pose_match,
@@ -722,6 +740,7 @@ class SpringMagicPhaserLoadPreset(bpy.types.Operator):
                     self.report({'WARNING'}, f"Collision collection '{collection_name}' not found, disabled.")
             else:
                 sjps.collision_collection = None
+            sjps.collision_auto_register = data.get("collision_auto_register", False)
             sjps.use_loop = data.get("use_loop", False)
             sjps.use_chain = data.get("use_chain", False)
             sjps.use_pose_match = data.get("use_pose_match", False)
@@ -769,6 +788,7 @@ class SpringMagicPhaserResetDefault(bpy.types.Operator):
         sjps.collision_plane_object = None
         sjps.use_collision_collection = False
         sjps.collision_collection = None
+        sjps.collision_auto_register = False
         sjps.use_loop = False
         sjps.use_chain = False
         sjps.use_pose_match = False

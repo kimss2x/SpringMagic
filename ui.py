@@ -77,6 +77,7 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         col.prop(sjps, "use_collision_collection", text="Collision Collection")
         if sjps.use_collision_collection:
             col.prop(sjps, "collision_collection", text="Collection")
+            col.prop(sjps, "collision_auto_register", text="Auto-register Collision")
 
         col = layout.column(align=True)
         col.label(text="Options:")
