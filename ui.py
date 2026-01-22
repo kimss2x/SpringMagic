@@ -107,10 +107,11 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         col = layout.column(align=True)
         row = col.row(align=True)
         row.prop(sjps, "frame_range_mode", expand=True)
+        row = col.row(align=True)
         if sjps.frame_range_mode == 'SCENE':
-            col.label(text=f"Range: {scene.frame_start} - {scene.frame_end}")
+            row.prop(scene, "frame_start", text="Start")
+            row.prop(scene, "frame_end", text="End")
         else:
-            row = col.row(align=True)
             row.prop(sjps, "custom_frame_start")
             row.prop(sjps, "custom_frame_end")
 
