@@ -44,6 +44,13 @@ def _get_addon_prefs(context):
         return addon.preferences
     return None
 
+def _get_frame_range(context):
+    """Get frame range based on mode (scene or custom)."""
+    sjps = context.scene.sj_phaser_props
+    if sjps.frame_range_mode == 'CUSTOM':
+        return sjps.custom_frame_start, sjps.custom_frame_end
+    return context.scene.frame_start, context.scene.frame_end
+
 def _parse_version(value):
     if isinstance(value, (list, tuple)):
         parts = value
@@ -287,8 +294,7 @@ class SpringMagicPhaserCalculate(bpy.types.Operator):
         sjps = context.scene.sj_phaser_props
         core = PhaserCore()
 
-        core.sf = context.scene.frame_start
-        core.ef = context.scene.frame_end
+        core.sf, core.ef = _get_frame_range(context)
         core.debug = sjps.debug
 
         core.delay = sjps.delay
@@ -418,8 +424,7 @@ class SpringMagicPhaserDelAnim(bpy.types.Operator):
         sjps = context.scene.sj_phaser_props
         core = PhaserCore()
 
-        core.sf = context.scene.frame_start
-        core.ef = context.scene.frame_end
+        core.sf, core.ef = _get_frame_range(context)
 
         if core.sf >= core.ef:
             self.report({'ERROR'}, "Start Frame must be smaller than End Frame.")
@@ -577,8 +582,7 @@ class SpringMagicControllerBake(bpy.types.Operator):
             return {'CANCELLED'}
 
         scene = context.scene
-        sf = scene.frame_start
-        ef = scene.frame_end
+        sf, ef = _get_frame_range(context)
         current_frame = scene.frame_current
 
         for frame in range(sf, ef + 1):
@@ -828,8 +832,14 @@ class SpringMagicCheckUpdate(bpy.types.Operator):
         except json.JSONDecodeError:
             data = raw.strip()
 
-        if isinstance(data, dict):
-            latest_version = _parse_version(data.get("version"))
+        if isinstance(data, list) and len(data) > 0:
+            # GitHub Tags API returns array of tags, get the first (latest) one
+            version_str = data[0].get("name") if isinstance(data[0], dict) else None
+            latest_version = _parse_version(version_str)
+        elif isinstance(data, dict):
+            # Support both "version" field and GitHub Releases API "tag_name" field
+            version_str = data.get("version") or data.get("tag_name")
+            latest_version = _parse_version(version_str)
         else:
             latest_version = _parse_version(data)
 

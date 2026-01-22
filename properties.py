@@ -199,6 +199,27 @@ class SpringMagicPhaserProperties(bpy.types.PropertyGroup):
         default=True
     )
 
+    # Frame Range
+    frame_range_mode: bpy.props.EnumProperty(
+        name="Frame Range",
+        description="Frame range mode for baking",
+        items=[
+            ('SCENE', "Scene", "Use scene frame range"),
+            ('CUSTOM', "Custom", "Use custom frame range"),
+        ],
+        default='SCENE'
+    )
+    custom_frame_start: bpy.props.IntProperty(
+        name="Start",
+        description="Custom start frame",
+        default=1, min=0
+    )
+    custom_frame_end: bpy.props.IntProperty(
+        name="End",
+        description="Custom end frame",
+        default=250, min=1
+    )
+
     # System
     threshold: bpy.props.FloatProperty(
         name="Threshold",

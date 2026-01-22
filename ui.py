@@ -21,9 +21,6 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row.operator("sj_phaser.load_preset", text="", icon="IMPORT")
         row.operator("sj_phaser.save_preset", text="", icon="EXPORT")
         row.operator("sj_phaser.reset_default", text="", icon="LOOP_BACK")
-
-        # Frame Range Info
-        layout.label(text=f"Scene Frame Range: {scene.frame_start} - {scene.frame_end}")
         
         # Core Properties
         col = layout.column(align=True)
@@ -104,39 +101,21 @@ class SpringMagicPhaserPanel(bpy.types.Panel):
         row.prop(sjps, "spring_bake_mode", expand=True)
         col.prop(sjps, "spring_bake_weight", slider=True)
 
+
+        # Frame Range
         layout.label(text="Actions(Bake):")
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.prop(sjps, "frame_range_mode", expand=True)
+        if sjps.frame_range_mode == 'SCENE':
+            col.label(text=f"Range: {scene.frame_start} - {scene.frame_end}")
+        else:
+            row = col.row(align=True)
+            row.prop(sjps, "custom_frame_start")
+            row.prop(sjps, "custom_frame_end")
+
         row = layout.row(align=True)
         row.scale_y = 1.5
         row.operator("sj_phaser.calculate", text="Calculate Physics", icon="PHYSICS")
         row.operator("sj_phaser.del_anim", text="", icon="TRASH")
 
-class SpringMagicInfoPanel(bpy.types.Panel):
-    r"""Version and update panel for SpringMagic"""
-    bl_label = "SpringMagic Info"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_context = "posemode"
-    bl_category = "Animation"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        addon = context.preferences.addons.get(__package__)
-        version = None
-        if addon and hasattr(addon, "module") and hasattr(addon.module, "bl_info"):
-            version = addon.module.bl_info.get("version", None)
-        if version:
-            version_str = ".".join(str(v) for v in version)
-            layout.label(text=f"Add-on Version: {version_str}")
-        else:
-            layout.label(text="Add-on Version: Unknown")
-        layout.label(text=f"Blender: {bpy.app.version_string}")
-
-        prefs = addon.preferences if addon else None
-        if prefs:
-            layout.prop(prefs, "update_url")
-            layout.operator("sj_phaser.check_update", text="Check for Updates", icon="FILE_REFRESH")
-            if prefs.last_update_status:
-                layout.label(text=prefs.last_update_status)
-            if prefs.last_checked:
-                layout.label(text=f"Last checked: {prefs.last_checked}")
